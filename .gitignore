@@ -1,0 +1,11 @@
+debug/
+target/
+benchmarks/
+**/*.rs.bk
+/.idea
+*.iml
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~

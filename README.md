@@ -10,6 +10,23 @@ Implements concurrency with Rayon and memory-mapped I/O (`memmap2`), delivering 
 
 ---
 
+<div align="center">
+  <p style="max-width:900px; margin:0 auto;">A few screenshots, click a thumbnail to open the full image.</p>
+  <div style="margin-top:12px; overflow-x:auto; white-space:nowrap; padding:8px 4px; -webkit-overflow-scrolling:touch;">
+    <a href="https://github.com/user-attachments/assets/8d67a416-680f-4f7f-8428-a011c8c96a14" target="_blank" rel="noopener">
+      <img src="https://github.com/user-attachments/assets/8d67a416-680f-4f7f-8428-a011c8c96a14" width="280" style="display:inline-block; margin-right:8px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.12);" alt="Create Patch" />
+    </a>
+    <a href="https://github.com/user-attachments/assets/8cedf8c9-c1e0-4ca8-90fc-6af382b209d6" target="_blank" rel="noopener">
+      <img src="https://github.com/user-attachments/assets/8cedf8c9-c1e0-4ca8-90fc-6af382b209d6" width="280" style="display:inline-block; margin-right:8px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.12);" alt="Apply & Undo" />
+    </a>
+    <a href="https://github.com/user-attachments/assets/b026ae1b-615e-4f27-b795-a5f65e7ab363" target="_blank" rel="noopener">
+      <img src="https://github.com/user-attachments/assets/b026ae1b-615e-4f27-b795-a5f65e7ab363" width="280" style="display:inline-block; margin-right:8px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.12);" alt="Info & DIZ" />
+    </a>
+  </div>
+</div>
+
+---
+
 ## Workspace Structure
 
 ```text

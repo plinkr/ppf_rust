@@ -102,10 +102,28 @@ body {
     opacity: 0.85;
 }
 
+.title-with-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .title-group h1 {
     font-size: 18px;
     font-weight: 700;
     letter-spacing: -0.3px;
+}
+
+.version-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    color: #93c5fd;
+    background: rgba(59, 130, 246, 0.2);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(59, 130, 246, 0.35);
 }
 
 .edition-badge {

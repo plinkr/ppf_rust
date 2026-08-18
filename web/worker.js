@@ -1,4 +1,4 @@
-import init, { inspect_patch, apply_patch, undo_patch, create_patch } from './pkg/ppf_wasm.js';
+import init, { inspect_patch, apply_patch, undo_patch, create_patch, get_app_version } from './pkg/ppf_wasm.js';
 
 let wasmReady = false;
 let wasmInitPromise = null;
@@ -107,6 +107,9 @@ self.onmessage = async (event) => {
                 },
                 [patchUint8.buffer]
             );
+        } else if (type === 'get_version') {
+            const version = get_app_version();
+            self.postMessage({ id, type: 'complete', success: true, version });
         } else {
             throw new Error(`Unknown action type: ${type}`);
         }

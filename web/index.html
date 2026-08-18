@@ -18,7 +18,10 @@
                     <span class="logo-sub">RUST</span>
                 </div>
                 <div class="title-group">
-                    <h1>PPF Rust Patcher</h1>
+                    <div class="title-with-badge">
+                        <h1>PPF Rust Patcher</h1>
+                        <span class="version-badge hidden" id="app-version-badge"></span>
+                    </div>
                     <span class="edition-badge">WebAssembly Edition</span>
                 </div>
             </div>
@@ -56,7 +59,7 @@
         <section id="apply-tab" class="tab-content active" role="tabpanel">
             <div class="card">
                 <h2 class="card-title">Target Image & Patch Selection</h2>
-                
+
                 <!-- Target Binary Input -->
                 <div class="form-group">
                     <label for="apply-bin-input">
@@ -462,7 +465,7 @@
 
         <!-- Footer -->
         <footer class="app-footer">
-            <p>PPF Rust Patcher &bull; MIT License &bull; <a href="https://github.com/plinkr/ppf_rust" target="_blank" rel="noopener noreferrer">GitHub Repository</a></p>
+            <p><span id="app-footer-info">PPF Rust Patcher</span> &bull; MIT License &bull; <a href="https://github.com/plinkr/ppf_rust" target="_blank" rel="noopener noreferrer">GitHub Repository</a></p>
         </footer>
     </div>
 

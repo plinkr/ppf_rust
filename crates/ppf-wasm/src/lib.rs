@@ -30,6 +30,11 @@ pub struct WasmCreatorOptions {
     pub file_id: Option<String>,
 }
 
+#[wasm_bindgen]
+pub fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 /// Inspects a PPF patch from an in-memory byte slice and returns patch metadata.
 #[wasm_bindgen]
 pub fn inspect_patch(patch_bytes: &[u8]) -> Result<JsValue, JsValue> {

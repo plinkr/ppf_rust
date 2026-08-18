@@ -6,7 +6,7 @@ let nextMessageId = 1;
 const pendingRequests = new Map();
 
 worker.onmessage = (event) => {
-    const { id, type, success, info, binBytes, patchBytes, error, percent, message } = event.data;
+    const { id, type, success, info, binBytes, patchBytes, version, error, percent, message } = event.data;
     const req = pendingRequests.get(id);
     if (!req) return;
 
@@ -17,7 +17,7 @@ worker.onmessage = (event) => {
     } else if (type === 'complete') {
         pendingRequests.delete(id);
         if (success) {
-            req.resolve({ info, binBytes, patchBytes });
+            req.resolve({ info, binBytes, patchBytes, version });
         } else {
             req.reject(new Error(error || 'Operation failed'));
         }
@@ -741,3 +741,19 @@ btnCreatePatch.addEventListener('click', async () => {
         updateCreateButtonState();
     }
 });
+
+sendWorkerMessage('get_version')
+    .then((res) => {
+        if (res?.version) {
+            const footerInfo = document.getElementById('app-footer-info');
+            if (footerInfo) {
+                footerInfo.textContent = `PPF Rust Patcher v${res.version}`;
+            }
+            const versionBadge = document.getElementById('app-version-badge');
+            if (versionBadge) {
+                versionBadge.textContent = `v${res.version}`;
+                versionBadge.classList.remove('hidden');
+            }
+        }
+    })
+    .catch(() => {});

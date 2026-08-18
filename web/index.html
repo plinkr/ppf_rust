@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PPF Rust Patcher - Web Edition</title>
+    <meta name="description" content="Fast, client-side PlayStation Patch Format (PPF 1.0, 2.0, 3.0) patcher and creator powered by WebAssembly and Rust.">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%232563eb'/><text x='50' y='65' font-size='48' font-weight='bold' fill='white' text-anchor='middle' font-family='sans-serif'>PPF</text></svg>">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-left">
+                <div class="app-logo">
+                    <span class="logo-text">PPF</span>
+                    <span class="logo-sub">RUST</span>
+                </div>
+                <div class="title-group">
+                    <h1>PPF Rust Patcher</h1>
+                    <span class="edition-badge">WebAssembly Edition</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <a href="https://github.com/plinkr/ppf_rust" target="_blank" rel="noopener noreferrer" class="gh-link" title="View Source on GitHub">
+                    <svg height="20" width="20" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
+                    </svg>
+                    <span>GitHub</span>
+                </a>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs" role="tablist">
+            <button class="tab-btn active" data-tab="apply-tab" role="tab" aria-selected="true">
+                <span class="tab-icon">⚡</span>
+                <span class="tab-label">Apply & Undo</span>
+            </button>
+            <button class="tab-btn" data-tab="create-tab" role="tab" aria-selected="false">
+                <span class="tab-icon">🛠️</span>
+                <span class="tab-label">Create Patch</span>
+            </button>
+            <button class="tab-btn" data-tab="info-tab" role="tab" aria-selected="false">
+                <span class="tab-icon">ℹ️</span>
+                <span class="tab-label">Info & DIZ</span>
+            </button>
+            <button class="tab-btn" data-tab="help-tab" role="tab" aria-selected="false">
+                <span class="tab-icon">📖</span>
+                <span class="tab-label">Help & Guide</span>
+            </button>
+        </nav>
+
+        <!-- Tab 1: Apply & Undo -->
+        <section id="apply-tab" class="tab-content active" role="tabpanel">
+            <div class="card">
+                <h2 class="card-title">Target Image & Patch Selection</h2>
+                
+                <!-- Target Binary Input -->
+                <div class="form-group">
+                    <label for="apply-bin-input">
+                        <strong>Target Binary Image</strong> <span class="dim">(.bin, .iso, .img, .cue, .raw)</span>:
+                    </label>
+                    <div class="dropzone" id="apply-bin-dropzone">
+                        <input type="file" id="apply-bin-input" accept=".bin,.iso,.img,.cue,.raw,*" class="file-input-hidden">
+                        <div class="dropzone-empty" id="apply-bin-empty">
+                            <span class="dropzone-icon">📁</span>
+                            <p class="dropzone-text">Drag & drop your target binary image here, or <button type="button" class="btn-link" id="apply-bin-browse">Browse...</button></p>
+                        </div>
+                        <div class="dropzone-selected hidden" id="apply-bin-selected">
+                            <span class="file-icon">💿</span>
+                            <div class="file-info">
+                                <span class="file-name" id="apply-bin-name">image.bin</span>
+                                <span class="file-size" id="apply-bin-size">0 MB</span>
+                            </div>
+                            <button type="button" class="btn-clear" id="apply-bin-clear" title="Remove file">&times;</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Patch Output Mode -->
+                <div class="form-group">
+                    <label for="apply-output-name"><strong>Output File Name:</strong></label>
+                    <input type="text" id="apply-output-name" class="text-input" placeholder="game_patched.bin" value="game_patched.bin">
+                    <span class="help-text">The patched binary image will be downloaded with this filename upon completion.</span>
+                </div>
+
+                <!-- PPF Patch Input -->
+                <div class="form-group">
+                    <label for="apply-patch-input">
+                        <strong>PPF Patch File</strong> <span class="dim">(.ppf)</span>:
+                    </label>
+                    <div class="dropzone" id="apply-patch-dropzone">
+                        <input type="file" id="apply-patch-input" accept=".ppf,*" class="file-input-hidden">
+                        <div class="dropzone-empty" id="apply-patch-empty">
+                            <span class="dropzone-icon">📄</span>
+                            <p class="dropzone-text">Drag & drop your .ppf patch file here, or <button type="button" class="btn-link" id="apply-patch-browse">Browse...</button></p>
+                        </div>
+                        <div class="dropzone-selected hidden" id="apply-patch-selected">
+                            <span class="file-icon">🧩</span>
+                            <div class="file-info">
+                                <span class="file-name" id="apply-patch-name">patch.ppf</span>
+                                <span class="file-size" id="apply-patch-size">0 KB</span>
+                            </div>
+                            <button type="button" class="btn-clear" id="apply-patch-clear" title="Remove file">&times;</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Patch Details & Validation Card -->
+            <div class="card">
+                <h2 class="card-title">Patch Details & Validation</h2>
+                <div id="apply-info-placeholder" class="placeholder-box">
+                    Select or drag & drop a .ppf patch file above to inspect its metadata.
+                </div>
+                <div id="apply-info-card" class="details-grid hidden">
+                    <div class="grid-row">
+                        <span class="grid-label">Format Version:</span>
+                        <span class="grid-value badge badge-blue" id="apply-info-version">PPF 3.0</span>
+                    </div>
+                    <div class="grid-row">
+                        <span class="grid-label">Description:</span>
+                        <span class="grid-value font-italic" id="apply-info-description">-</span>
+                    </div>
+                    <div class="grid-row" id="apply-info-imagetype-row">
+                        <span class="grid-label">Image Type:</span>
+                        <span class="grid-value" id="apply-info-imagetype">BIN (Standard RAW / ISO)</span>
+                    </div>
+                    <div class="grid-row" id="apply-info-blockcheck-row">
+                        <span class="grid-label">Block Validation:</span>
+                        <span class="grid-value" id="apply-info-blockcheck">Enabled</span>
+                    </div>
+                    <div class="grid-row" id="apply-info-undo-row">
+                        <span class="grid-label">Undo Data:</span>
+                        <span class="grid-value" id="apply-info-undo">Available</span>
+                    </div>
+                    <div class="grid-row">
+                        <span class="grid-label">FILE_ID.DIZ:</span>
+                        <span class="grid-value" id="apply-info-fileid">None</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="actions-container">
+                <button type="button" class="btn btn-primary" id="btn-apply-patch" disabled>
+                    <span class="btn-icon">⚡</span>
+                    <span>Apply Patch</span>
+                </button>
+                <button type="button" class="btn btn-secondary" id="btn-undo-patch" disabled title="Requires a PPF3 patch with undo data enabled">
+                    <span class="btn-icon">🔄</span>
+                    <span>Undo Patch</span>
+                </button>
+            </div>
+
+            <!-- Progress & Status -->
+            <div class="progress-box hidden" id="apply-progress-box">
+                <div class="progress-header">
+                    <span class="progress-title" id="apply-progress-title">Processing...</span>
+                    <span class="progress-percent" id="apply-progress-percent">0%</span>
+                </div>
+                <div class="progress-track">
+                    <div class="progress-fill" id="apply-progress-fill" style="width: 0%;"></div>
+                </div>
+                <div class="progress-detail" id="apply-progress-detail">Preparing...</div>
+            </div>
+
+            <div class="status-banner hidden" id="apply-status-banner"></div>
+        </section>
+
+        <!-- Tab 2: Create Patch -->
+        <section id="create-tab" class="tab-content" role="tabpanel">
+            <div class="card">
+                <h2 class="card-title">Source and Destination Files</h2>
+
+                <!-- Original Binary Input -->
+                <div class="form-group">
+                    <label for="create-orig-input">
+                        <strong>Original Binary File (Unmodified)</strong> <span class="dim">(.bin, .iso, .img, .cue, .raw)</span>:
+                    </label>
+                    <div class="dropzone" id="create-orig-dropzone">
+                        <input type="file" id="create-orig-input" accept=".bin,.iso,.img,.cue,.raw,*" class="file-input-hidden">
+                        <div class="dropzone-empty" id="create-orig-empty">
+                            <span class="dropzone-icon">📁</span>
+                            <p class="dropzone-text">Drag & drop clean original binary here, or <button type="button" class="btn-link" id="create-orig-browse">Browse...</button></p>
+                        </div>
+                        <div class="dropzone-selected hidden" id="create-orig-selected">
+                            <span class="file-icon">💿</span>
+                            <div class="file-info">
+                                <span class="file-name" id="create-orig-name">original.bin</span>
+                                <span class="file-size" id="create-orig-size">0 MB</span>
+                            </div>
+                            <button type="button" class="btn-clear" id="create-orig-clear" title="Remove file">&times;</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modified Binary Input -->
+                <div class="form-group">
+                    <label for="create-mod-input">
+                        <strong>Modified Binary File (Patched/Translated)</strong>:
+                    </label>
+                    <div class="dropzone" id="create-mod-dropzone">
+                        <input type="file" id="create-mod-input" accept=".bin,.iso,.img,.cue,.raw,*" class="file-input-hidden">
+                        <div class="dropzone-empty" id="create-mod-empty">
+                            <span class="dropzone-icon">📁</span>
+                            <p class="dropzone-text">Drag & drop modified binary here, or <button type="button" class="btn-link" id="create-mod-browse">Browse...</button></p>
+                        </div>
+                        <div class="dropzone-selected hidden" id="create-mod-selected">
+                            <span class="file-icon">💿</span>
+                            <div class="file-info">
+                                <span class="file-name" id="create-mod-name">modified.bin</span>
+                                <span class="file-size" id="create-mod-size">0 MB</span>
+                            </div>
+                            <button type="button" class="btn-clear" id="create-mod-clear" title="Remove file">&times;</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Output Patch Filename -->
+                <div class="form-group">
+                    <label for="create-output-name"><strong>Output PPF3 Patch Name:</strong></label>
+                    <input type="text" id="create-output-name" class="text-input" placeholder="patch.ppf" value="patch.ppf">
+                </div>
+            </div>
+
+            <!-- PPF3 Configuration & Metadata -->
+            <div class="card">
+                <h2 class="card-title">PPF3 Configuration & Metadata</h2>
+
+                <!-- Description -->
+                <div class="form-group">
+                    <div class="label-with-counter">
+                        <label for="create-desc-input"><strong>Patch Description</strong> (max 50 chars):</label>
+                        <span class="char-counter" id="create-desc-counter">0/50</span>
+                    </div>
+                    <input type="text" id="create-desc-input" class="text-input" maxlength="50" placeholder="Created with PPF Rust Patcher">
+                </div>
+
+                <!-- Image Type -->
+                <div class="form-group">
+                    <label><strong>Image Type:</strong></label>
+                    <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" name="create-image-type" value="bin" checked>
+                            <span>BIN / RAW (Standard CD/DVD RAW image, 0x9320)</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="create-image-type" value="gi">
+                            <span>GI (Global Image / PrimoDVD, 0x80A0)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Checkboxes -->
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="create-block-check" checked>
+                        <span><strong>Include Block Check (Validation)</strong> - Protects against applying to wrong dump</span>
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="create-undo-data">
+                        <span><strong>Include Undo Data (Reversible Patch)</strong> - Allows users to restore original file later</span>
+                    </label>
+                </div>
+
+                <!-- Optional FILE_ID.DIZ -->
+                <div class="form-group">
+                    <label for="create-diz-input"><strong>Optional FILE_ID.DIZ (Release info text):</strong></label>
+                    <textarea id="create-diz-input" class="textarea-input" rows="4" placeholder="Enter optional release notes, credits, or BBS info (up to 3KB)..." maxlength="3072"></textarea>
+                </div>
+            </div>
+
+            <!-- Create Action Button -->
+            <div class="actions-container">
+                <button type="button" class="btn btn-primary" id="btn-create-patch" disabled>
+                    <span class="btn-icon">🛠️</span>
+                    <span>Create PPF3 Patch</span>
+                </button>
+            </div>
+
+            <!-- Progress & Status -->
+            <div class="progress-box hidden" id="create-progress-box">
+                <div class="progress-header">
+                    <span class="progress-title" id="create-progress-title">Scanning differences...</span>
+                    <span class="progress-percent" id="create-progress-percent">0%</span>
+                </div>
+                <div class="progress-track">
+                    <div class="progress-fill" id="create-progress-fill" style="width: 0%;"></div>
+                </div>
+                <div class="progress-detail" id="create-progress-detail">Comparing byte chunks...</div>
+            </div>
+
+            <div class="status-banner hidden" id="create-status-banner"></div>
+        </section>
+
+        <!-- Tab 3: Info & DIZ -->
+        <section id="info-tab" class="tab-content" role="tabpanel">
+            <div class="card">
+                <h2 class="card-title">Inspect Patch File</h2>
+                <div class="form-group">
+                    <label for="info-patch-input"><strong>Select PPF Patch to inspect (.ppf):</strong></label>
+                    <div class="dropzone" id="info-patch-dropzone">
+                        <input type="file" id="info-patch-input" accept=".ppf,*" class="file-input-hidden">
+                        <div class="dropzone-empty" id="info-patch-empty">
+                            <span class="dropzone-icon">📄</span>
+                            <p class="dropzone-text">Drag & drop any .ppf patch file here, or <button type="button" class="btn-link" id="info-patch-browse">Browse...</button></p>
+                        </div>
+                        <div class="dropzone-selected hidden" id="info-patch-selected">
+                            <span class="file-icon">🧩</span>
+                            <div class="file-info">
+                                <span class="file-name" id="info-patch-name">patch.ppf</span>
+                                <span class="file-size" id="info-patch-size">0 KB</span>
+                            </div>
+                            <button type="button" class="btn-clear" id="info-patch-clear" title="Remove file">&times;</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" id="info-details-card">
+                <h2 class="card-title">Patch Header Information</h2>
+                <div id="info-placeholder" class="placeholder-box">
+                    Select or drag & drop a PPF patch file above to inspect its metadata and embedded release information.
+                </div>
+                <div id="info-grid" class="details-grid hidden">
+                    <div class="grid-row">
+                        <span class="grid-label">Format Version:</span>
+                        <span class="grid-value badge badge-blue" id="info-version">PPF 3.0</span>
+                    </div>
+                    <div class="grid-row">
+                        <span class="grid-label">Description:</span>
+                        <span class="grid-value font-italic" id="info-description">-</span>
+                    </div>
+                    <div class="grid-row" id="info-imagetype-row">
+                        <span class="grid-label">Image Type:</span>
+                        <span class="grid-value" id="info-imagetype">BIN (Standard RAW / ISO)</span>
+                    </div>
+                    <div class="grid-row" id="info-blockcheck-row">
+                        <span class="grid-label">Block Validation:</span>
+                        <span class="grid-value" id="info-blockcheck">Enabled</span>
+                    </div>
+                    <div class="grid-row" id="info-undo-row">
+                        <span class="grid-label">Undo Data:</span>
+                        <span class="grid-value" id="info-undo">Available</span>
+                    </div>
+                    <div class="grid-row">
+                        <span class="grid-label">FILE_ID.DIZ:</span>
+                        <span class="grid-value" id="info-fileid-status">None</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- FILE_ID.DIZ Viewer Card -->
+            <div class="card hidden" id="info-diz-card">
+                <div class="card-header-flex">
+                    <h2 class="card-title">FILE_ID.DIZ Viewer</h2>
+                    <button type="button" class="btn btn-small" id="btn-copy-diz">Copy Text</button>
+                </div>
+                <pre class="diz-viewer" id="info-diz-viewer"></pre>
+            </div>
+        </section>
+
+        <!-- Tab 4: Help & Guide -->
+        <section id="help-tab" class="tab-content" role="tabpanel">
+            <div class="card">
+                <h2 class="card-title">PPF Rust Patcher - User Guide & Help</h2>
+                <p class="intro-text">
+                    This tool allows you to easily apply, reverse, and create PPF (PlayStation Patch Format) patches for disc images (CD/DVD) and ROM files directly in your web browser with native WebAssembly performance.
+                </p>
+
+                <div class="accordion">
+                    <!-- Section 1 -->
+                    <details class="accordion-item" open>
+                        <summary class="accordion-header">1. What is a PPF Patch?</summary>
+                        <div class="accordion-body">
+                            <p>PPF (PlayStation Patch Format) is a binary diff patching standard originally designed for PlayStation CD-ROM images and widely used for translations, game modifications, and fan patches.</p>
+                            <ul class="guide-list">
+                                <li><strong>PPF 1.0:</strong> Legacy format with simple byte offsets and raw diff records.</li>
+                                <li><strong>PPF 2.0:</strong> Introduces a 1024-byte checksum block validation to ensure you are patching the correct file.</li>
+                                <li><strong>PPF 3.0:</strong> Modern format with 64-bit offsets (supports multi-gigabyte DVD/Blu-ray images), optional Blockcheck validation, embedded FILE_ID.DIZ release descriptions, and reversible Undo support.</li>
+                            </ul>
+                        </div>
+                    </details>
+
+                    <!-- Section 2 -->
+                    <details class="accordion-item">
+                        <summary class="accordion-header">2. How to Apply a Patch</summary>
+                        <div class="accordion-body">
+                            <ol class="guide-list">
+                                <li>Select your Target Binary Image (.bin, .iso, .img, etc.) or drag & drop it into the window.</li>
+                                <li>Select your PPF Patch File (.ppf) or drag & drop it into the window.</li>
+                                <li>Specify your desired output filename.</li>
+                                <li>Review the Patch Details card (Description, Version, Validation status).</li>
+                                <li>Click the <strong>Apply Patch</strong> button. Your patched file will be generated and downloaded automatically.</li>
+                            </ol>
+                        </div>
+                    </details>
+
+                    <!-- Section 3 -->
+                    <details class="accordion-item">
+                        <summary class="accordion-header">3. How to Undo (Reverse) a Patch</summary>
+                        <div class="accordion-body">
+                            <p>If a PPF 3.0 patch was created with <em>Undo Data</em> enabled, you can completely reverse the changes and restore the original binary bytes without needing a fresh game dump.</p>
+                            <ol class="guide-list">
+                                <li>Select the modified/patched binary image in the <strong>Apply & Undo</strong> tab.</li>
+                                <li>Select the matching .ppf patch file.</li>
+                                <li>If the patch contains undo data, the <strong>Undo Patch</strong> button will become active.</li>
+                                <li>Click <strong>Undo Patch</strong> to restore the binary and download the original file.</li>
+                            </ol>
+                        </div>
+                    </details>
+
+                    <!-- Section 4 -->
+                    <details class="accordion-item">
+                        <summary class="accordion-header">4. How to Create a PPF3 Patch</summary>
+                        <div class="accordion-body">
+                            <ol class="guide-list">
+                                <li>In the <strong>Create Patch</strong> tab, select your <em>Original Unmodified Binary</em>.</li>
+                                <li>Select your <em>Modified/Patched Binary</em>. (Note: Both files MUST have the exact same file size in bytes).</li>
+                                <li>Choose the Output PPF3 Patch File name.</li>
+                                <li>Configure patch options:
+                                    <ul>
+                                        <li><strong>Description:</strong> Short title or author credit (max 50 chars).</li>
+                                        <li><strong>Image Type:</strong> Choose 'BIN/RAW' for normal CD/ISO images or 'GI' for Global Image format.</li>
+                                        <li><strong>Include Block Check:</strong> Highly recommended. Prevents users from applying your patch to the wrong revision/region.</li>
+                                        <li><strong>Include Undo Data:</strong> Enables users to reverse your patch later.</li>
+                                        <li><strong>FILE_ID.DIZ:</strong> Optional release text file containing changelogs, credits, or instructions.</li>
+                                    </ul>
+                                </li>
+                                <li>Click <strong>Create PPF3 Patch</strong>. The diff engine will process the files and download the resulting .ppf patch.</li>
+                            </ol>
+                        </div>
+                    </details>
+
+                    <!-- Section 5 -->
+                    <details class="accordion-item">
+                        <summary class="accordion-header">5. Common Errors & Troubleshooting</summary>
+                        <div class="accordion-body">
+                            <div class="trouble-item">
+                                <span class="badge badge-red">Error: Bin file size mismatch</span>
+                                <p>The target binary image size does not match what the patch expects. Make sure you are using an uncompressed raw image (.bin/.iso).</p>
+                            </div>
+                            <div class="trouble-item">
+                                <span class="badge badge-red">Error: Block check validation failed</span>
+                                <p>The disc image checksum did not match. You might be using a different game region (e.g. NTSC vs PAL), a bad dump, or a file that has already been patched.</p>
+                            </div>
+                            <div class="trouble-item">
+                                <span class="badge badge-red">Error: Undo data not available</span>
+                                <p>This patch is a one-way patch and did not include original restoration data.</p>
+                            </div>
+                        </div>
+                    </details>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>PPF Rust Patcher &bull; MIT License &bull; <a href="https://github.com/plinkr/ppf_rust" target="_blank" rel="noopener noreferrer">GitHub Repository</a></p>
+        </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script type="module" src="app.js"></script>
+</body>
+</html>

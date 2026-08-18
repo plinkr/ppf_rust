@@ -1,0 +1,203 @@
+use ppf_core::{
+    ImageType, PatchInfo, PpfCreatorOptions, apply_patch_slice, create_patch_slice,
+    inspect_patch_slice, undo_patch_slice,
+};
+use serde::Deserialize;
+use std::cell::Cell;
+use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use wasm_bindgen::prelude::*;
+
+struct SendSyncFn(js_sys::Function);
+unsafe impl Send for SendSyncFn {}
+unsafe impl Sync for SendSyncFn {}
+
+impl SendSyncFn {
+    fn call_progress(&self, done: f64, total: f64) {
+        let _ = self
+            .0
+            .call2(&JsValue::NULL, &JsValue::from(done), &JsValue::from(total));
+    }
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmCreatorOptions {
+    pub description: Option<String>,
+    pub image_type: Option<String>,
+    pub block_check: Option<bool>,
+    pub undo_data: Option<bool>,
+    pub file_id: Option<String>,
+}
+
+/// Inspects a PPF patch from an in-memory byte slice and returns patch metadata.
+#[wasm_bindgen]
+pub fn inspect_patch(patch_bytes: &[u8]) -> Result<JsValue, JsValue> {
+    let info = inspect_patch_slice(patch_bytes)
+        .map_err(|err| JsValue::from(js_sys::Error::new(&err.to_string())))?;
+    serde_wasm_bindgen::to_value(&info)
+        .map_err(|err| JsValue::from(js_sys::Error::new(&err.to_string())))
+}
+
+/// Applies a PPF patch to a target binary byte slice in-place.
+#[wasm_bindgen]
+pub fn apply_patch(
+    patch_bytes: &[u8],
+    target_bytes: &mut [u8],
+    progress_cb: Option<js_sys::Function>,
+) -> Result<JsValue, JsValue> {
+    let total_records = Rc::new(Cell::new(0usize));
+    let done_records = Rc::new(Cell::new(0usize));
+
+    let total_start = total_records.clone();
+    let on_start = progress_cb.as_ref().map(|cb| {
+        let cb = cb.clone();
+        move |total: usize| {
+            total_start.set(total);
+            let _ = cb.call2(
+                &JsValue::NULL,
+                &JsValue::from(0usize),
+                &JsValue::from(total as f64),
+            );
+        }
+    });
+
+    let total_progress = total_records.clone();
+    let done_progress = done_records.clone();
+    let on_progress = progress_cb.as_ref().map(|cb| {
+        let cb = cb.clone();
+        move |count: usize| {
+            let done = done_progress.get() + count;
+            done_progress.set(done);
+            let total = total_progress.get();
+            if total > 0 && (done == total || done.is_multiple_of(200)) {
+                let _ = cb.call2(
+                    &JsValue::NULL,
+                    &JsValue::from(done as f64),
+                    &JsValue::from(total as f64),
+                );
+            }
+        }
+    });
+
+    let info: PatchInfo = apply_patch_slice(
+        patch_bytes,
+        target_bytes,
+        on_start.as_ref().map(|f| f as &dyn Fn(usize)),
+        on_progress.as_ref().map(|f| f as &dyn Fn(usize)),
+    )
+    .map_err(|err| JsValue::from(js_sys::Error::new(&err.to_string())))?;
+
+    serde_wasm_bindgen::to_value(&info)
+        .map_err(|err| JsValue::from(js_sys::Error::new(&err.to_string())))
+}
+
+/// Reverses/undoes a PPF3 patch on a target binary byte slice in-place.
+#[wasm_bindgen]
+pub fn undo_patch(
+    patch_bytes: &[u8],
+    target_bytes: &mut [u8],
+    progress_cb: Option<js_sys::Function>,
+) -> Result<JsValue, JsValue> {
+    let total_records = Rc::new(Cell::new(0usize));
+    let done_records = Rc::new(Cell::new(0usize));
+
+    let total_start = total_records.clone();
+    let on_start = progress_cb.as_ref().map(|cb| {
+        let cb = cb.clone();
+        move |total: usize| {
+            total_start.set(total);
+            let _ = cb.call2(
+                &JsValue::NULL,
+                &JsValue::from(0usize),
+                &JsValue::from(total as f64),
+            );
+        }
+    });
+
+    let total_progress = total_records.clone();
+    let done_progress = done_records.clone();
+    let on_progress = progress_cb.as_ref().map(|cb| {
+        let cb = cb.clone();
+        move |count: usize| {
+            let done = done_progress.get() + count;
+            done_progress.set(done);
+            let total = total_progress.get();
+            if total > 0 && (done == total || done.is_multiple_of(200)) {
+                let _ = cb.call2(
+                    &JsValue::NULL,
+                    &JsValue::from(done as f64),
+                    &JsValue::from(total as f64),
+                );
+            }
+        }
+    });
+
+    let info: PatchInfo = undo_patch_slice(
+        patch_bytes,
+        target_bytes,
+        on_start.as_ref().map(|f| f as &dyn Fn(usize)),
+        on_progress.as_ref().map(|f| f as &dyn Fn(usize)),
+    )
+    .map_err(|err| JsValue::from(js_sys::Error::new(&err.to_string())))?;
+
+    serde_wasm_bindgen::to_value(&info)
+        .map_err(|err| JsValue::from(js_sys::Error::new(&err.to_string())))
+}
+
+/// Creates a PPF3 patch comparing original and modified binary byte slices.
+#[wasm_bindgen]
+pub fn create_patch(
+    orig_bytes: &[u8],
+    mod_bytes: &[u8],
+    options: JsValue,
+    progress_cb: Option<js_sys::Function>,
+) -> Result<js_sys::Uint8Array, JsValue> {
+    let wasm_opts: WasmCreatorOptions = if options.is_undefined() || options.is_null() {
+        WasmCreatorOptions::default()
+    } else {
+        serde_wasm_bindgen::from_value(options)
+            .map_err(|err| JsValue::from(js_sys::Error::new(&err.to_string())))?
+    };
+
+    let img_type = match wasm_opts.image_type.as_deref() {
+        Some("gi") | Some("GI") => ImageType::Gi,
+        _ => ImageType::Bin,
+    };
+
+    let core_opts = PpfCreatorOptions {
+        description: wasm_opts
+            .description
+            .filter(|d| !d.trim().is_empty())
+            .unwrap_or_else(|| ppf_core::DEFAULT_DESCRIPTION.to_string()),
+        image_type: img_type,
+        block_check: wasm_opts.block_check.unwrap_or(true),
+        undo_data: wasm_opts.undo_data.unwrap_or(false),
+        file_id: wasm_opts.file_id.map(|s| s.into_bytes()),
+    };
+
+    let total_bytes = orig_bytes.len();
+    let done_bytes = AtomicUsize::new(0);
+
+    let on_progress = progress_cb.as_ref().map(|cb| {
+        let send_cb = SendSyncFn(cb.clone());
+        move |bytes: usize| {
+            let done = done_bytes.fetch_add(bytes, Ordering::Relaxed) + bytes;
+            send_cb.call_progress(done as f64, total_bytes as f64);
+        }
+    });
+
+    let mut output = Vec::new();
+    create_patch_slice(
+        orig_bytes,
+        mod_bytes,
+        &mut output,
+        &core_opts,
+        on_progress
+            .as_ref()
+            .map(|f| f as &(dyn Fn(usize) + Sync + Send)),
+    )
+    .map_err(|err| JsValue::from(js_sys::Error::new(&err.to_string())))?;
+
+    Ok(js_sys::Uint8Array::from(&output[..]))
+}

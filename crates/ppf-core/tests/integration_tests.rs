@@ -1,9 +1,102 @@
 use ppf_core::applier;
 use ppf_core::core::ImageType;
 use ppf_core::creator::{self, PpfCreatorOptions};
+#[cfg(feature = "mmap")]
 use std::io::Write;
+#[cfg(feature = "mmap")]
 use tempfile::NamedTempFile;
 
+#[test]
+fn test_slice_apply_ppf1() {
+    let mut target = vec![0u8; 100];
+    let mut patch = Vec::new();
+    patch.extend_from_slice(b"PPF1");
+    patch.extend_from_slice(&[0, 0]);
+    patch.extend_from_slice(b"Test description                                  ");
+    patch.extend_from_slice(&10u32.to_le_bytes());
+    patch.push(3);
+    patch.extend_from_slice(&[1, 2, 3]);
+
+    let info = applier::inspect_patch_slice(&patch).unwrap();
+    assert_eq!(info.description, "Test description");
+    assert_eq!(info.file_id, None);
+
+    let info = applier::apply_patch_slice(&patch, &mut target, None, None).unwrap();
+    assert_eq!(info.description, "Test description");
+    assert_eq!(target[10], 1);
+    assert_eq!(target[11], 2);
+    assert_eq!(target[12], 3);
+}
+
+#[test]
+fn test_slice_apply_ppf2() {
+    let mut target = vec![0u8; 0x9320 + 2048];
+    target[0x9320..0x9320 + 1024].fill(0xAA);
+
+    let mut patch = Vec::new();
+    patch.extend_from_slice(b"PPF2");
+    patch.extend_from_slice(&[0, 0]);
+    patch.extend_from_slice(b"PPF2 description                                  ");
+    patch.extend_from_slice(&(target.len() as u32).to_le_bytes());
+    patch.extend_from_slice(&target[0x9320..0x9320 + 1024]);
+
+    patch.extend_from_slice(&100u32.to_le_bytes());
+    patch.push(2);
+    patch.extend_from_slice(&[0x11, 0x22]);
+
+    let file_id_text = "Release file_id for PPF2";
+    patch.extend_from_slice(b"@BEGIN_FILE_ID.DIZ");
+    patch.extend_from_slice(file_id_text.as_bytes());
+    patch.extend_from_slice(b"@END_FILE_ID.DIZ");
+    patch.extend_from_slice(&(file_id_text.len() as u32).to_le_bytes());
+
+    let info = applier::apply_patch_slice(&patch, &mut target, None, None).unwrap();
+    assert_eq!(info.description, "PPF2 description");
+    assert_eq!(info.file_id.as_deref(), Some(file_id_text));
+    assert_eq!(target[100], 0x11);
+    assert_eq!(target[101], 0x22);
+}
+
+#[test]
+fn test_slice_create_apply_undo_roundtrip() {
+    let size = 64 * 1024;
+    let mut orig_data = vec![0x33u8; size];
+    let mut mod_data = vec![0x33u8; size];
+
+    orig_data[50..55].copy_from_slice(&[1, 2, 3, 4, 5]);
+    mod_data[50..55].copy_from_slice(&[10, 20, 30, 40, 50]);
+
+    orig_data[40000..40300].fill(0x55);
+    mod_data[40000..40300].fill(0x99);
+
+    let options = PpfCreatorOptions {
+        description: "Slice Roundtrip".to_string(),
+        image_type: ImageType::Bin,
+        block_check: true,
+        undo_data: true,
+        file_id: Some(b"Slice DIZ metadata".to_vec()),
+    };
+
+    let mut patch_bytes = Vec::new();
+    let entries =
+        creator::create_patch_slice(&orig_data, &mod_data, &mut patch_bytes, &options, None)
+            .unwrap();
+
+    assert!(entries >= 2);
+
+    let info = applier::inspect_patch_slice(&patch_bytes).unwrap();
+    assert_eq!(info.description, "Slice Roundtrip");
+    assert_eq!(info.file_id.as_deref(), Some("Slice DIZ metadata"));
+
+    let mut target = orig_data.clone();
+    applier::apply_patch_slice(&patch_bytes, &mut target, None, None).unwrap();
+    assert_eq!(target, mod_data);
+
+    applier::undo_patch_slice(&patch_bytes, &mut target, None, None).unwrap();
+    assert_eq!(target, orig_data);
+}
+
+#[cfg(feature = "mmap")]
 #[test]
 fn test_apply_ppf1() {
     let mut bin = NamedTempFile::new().unwrap();
@@ -33,6 +126,7 @@ fn test_apply_ppf1() {
     assert_eq!(result_data[12], 3);
 }
 
+#[cfg(feature = "mmap")]
 #[test]
 fn test_apply_ppf2() {
     let mut bin = NamedTempFile::new().unwrap();
@@ -70,6 +164,7 @@ fn test_apply_ppf2() {
     assert_eq!(result_data[101], 0x22);
 }
 
+#[cfg(feature = "mmap")]
 #[test]
 fn test_apply_and_undo_ppf3_manual() {
     let mut bin = NamedTempFile::new().unwrap();
@@ -115,6 +210,7 @@ fn test_apply_and_undo_ppf3_manual() {
     assert_eq!(result_data[21], 0);
 }
 
+#[cfg(feature = "mmap")]
 #[test]
 fn test_create_and_apply_ppf3_roundtrip() {
     let mut orig_file = NamedTempFile::new().unwrap();
@@ -174,6 +270,7 @@ fn test_create_and_apply_ppf3_roundtrip() {
     );
 }
 
+#[cfg(feature = "mmap")]
 #[test]
 fn test_create_patch_small_file_no_panic() {
     let mut orig_file = NamedTempFile::new().unwrap();
@@ -210,6 +307,7 @@ fn test_create_patch_small_file_no_panic() {
     assert_eq!(patched, mod_data);
 }
 
+#[cfg(feature = "mmap")]
 #[test]
 fn test_create_patch_small_file_with_blockcheck_does_not_panic() {
     let mut orig_file = NamedTempFile::new().unwrap();
@@ -265,17 +363,12 @@ fn test_create_patch_stream_roundtrip() {
             .unwrap();
     assert_eq!(entries, 1);
 
-    let mut target_bin = NamedTempFile::new().unwrap();
-    target_bin.write_all(&orig_data).unwrap();
-
-    let mut ppf_file = NamedTempFile::new().unwrap();
-    ppf_file.write_all(&patch_bytes).unwrap();
-
-    applier::apply_patch(ppf_file.path(), target_bin.path(), None, None).unwrap();
-    let result = std::fs::read(target_bin.path()).unwrap();
-    assert_eq!(result, mod_data);
+    let mut target_bin = orig_data.clone();
+    applier::apply_patch_slice(&patch_bytes, &mut target_bin, None, None).unwrap();
+    assert_eq!(target_bin, mod_data);
 }
 
+#[cfg(feature = "mmap")]
 #[test]
 fn test_undo_patch_with_blockcheck_modification() {
     let mut orig_file = NamedTempFile::new().unwrap();

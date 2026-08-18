@@ -6,9 +6,16 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-memmap2.workspace = true
-rayon.workspace = true
+memmap2 = { workspace = true, optional = true }
+rayon = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
 thiserror.workspace = true
+
+[features]
+default = ["mmap", "parallel"]
+mmap = ["dep:memmap2"]
+parallel = ["dep:rayon"]
+serde = ["dep:serde"]
 
 [dev-dependencies]
 tempfile.workspace = true

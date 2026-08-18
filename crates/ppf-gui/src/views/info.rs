@@ -1,8 +1,7 @@
-use crate::app::{PpfApp, clean_path_str};
-use crate::worker::{FilePickTarget, InspectTargetTab, inspect_patch_async, pick_file_async};
+use crate::app::PpfApp;
+use crate::worker::{FilePickTarget, InspectTargetTab, pick_file_async};
 use egui::{Color32, RichText, Ui};
 use ppf_core::{ImageType, PpfVersion};
-use std::path::PathBuf;
 
 pub fn show(app: &mut PpfApp, ui: &mut Ui) {
     ui.add_space(8.0);
@@ -25,13 +24,7 @@ pub fn show(app: &mut PpfApp, ui: &mut Ui) {
             if edit.changed() {
                 app.info_patch_info = None;
                 app.info_inspect_error = None;
-                let clean = clean_path_str(&app.info_patch_path);
-                if !clean.is_empty() {
-                    let path = PathBuf::from(clean);
-                    if path.exists() {
-                        inspect_patch_async(path, InspectTargetTab::Info, app.tx_event.clone());
-                    }
-                }
+                app.inspect_patch_if_exists(InspectTargetTab::Info);
             }
 
             let browse_btn = ui.add_enabled(!app.is_busy, egui::Button::new("Browse..."))

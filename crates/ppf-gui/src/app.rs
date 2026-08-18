@@ -2,6 +2,7 @@ use crate::views;
 use crate::worker::{FilePickTarget, InspectTargetTab, WorkerEvent, inspect_patch_async};
 use egui::{Color32, RichText};
 use ppf_core::{ImageType, PatchInfo};
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +93,20 @@ impl PpfApp {
             info_patch_path: String::new(),
             info_patch_info: None,
             info_inspect_error: None,
+        }
+    }
+
+    pub fn inspect_patch_if_exists(&self, target_tab: InspectTargetTab) {
+        let raw_path = match target_tab {
+            InspectTargetTab::ApplyUndo => &self.apply_patch_path,
+            InspectTargetTab::Info => &self.info_patch_path,
+        };
+        let clean = clean_path_str(raw_path);
+        if !clean.is_empty() {
+            let path = PathBuf::from(clean);
+            if path.exists() {
+                inspect_patch_async(path, target_tab, self.tx_event.clone());
+            }
         }
     }
 

@@ -1,7 +1,8 @@
 use crate::app::{PpfApp, clean_path_str};
+use crate::views::widgets;
 use crate::worker::{
-    FilePickTarget, InspectTargetTab, apply_patch_async, inspect_patch_async, pick_file_async,
-    save_file_async, undo_patch_async,
+    FilePickTarget, InspectTargetTab, apply_patch_async, pick_file_async, save_file_async,
+    undo_patch_async,
 };
 use egui::{Color32, RichText, Ui};
 use ppf_core::{ImageType, PpfVersion};
@@ -112,17 +113,7 @@ pub fn show(app: &mut PpfApp, ui: &mut Ui) {
                 app.apply_patch_info = None;
                 app.apply_inspect_error = None;
                 app.action_status = None;
-                let clean = clean_path_str(&app.apply_patch_path);
-                if !clean.is_empty() {
-                    let path = PathBuf::from(clean);
-                    if path.exists() {
-                        inspect_patch_async(
-                            path,
-                            InspectTargetTab::ApplyUndo,
-                            app.tx_event.clone(),
-                        );
-                    }
-                }
+                app.inspect_patch_if_exists(InspectTargetTab::ApplyUndo);
             }
 
             let browse_patch = ui.add_enabled(!app.is_busy, egui::Button::new("Browse..."))
@@ -303,44 +294,8 @@ pub fn show(app: &mut PpfApp, ui: &mut Ui) {
     });
 
     // Progress Bar (when busy)
-    if app.is_busy {
-        ui.add_space(10.0);
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.label(RichText::new(&app.busy_operation).strong());
-            ui.add_space(2.0);
-            ui.add(
-                egui::ProgressBar::new(app.progress)
-                    .show_percentage()
-                    .animate(true),
-            );
-            ui.label(&app.progress_msg);
-        });
-    }
+    widgets::render_progress(app, ui);
 
     // Status / Result Banner
-    if let Some(status) = &app.action_status {
-        ui.add_space(10.0);
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            match status {
-                Ok(msg) => {
-                    ui.label(
-                        RichText::new(msg)
-                            .color(Color32::from_rgb(100, 230, 120))
-                            .size(14.0)
-                            .strong(),
-                    );
-                }
-                Err(err) => {
-                    ui.label(
-                        RichText::new(format!("Error: {}", err))
-                            .color(Color32::from_rgb(255, 100, 100))
-                            .size(14.0)
-                            .strong(),
-                    );
-                }
-            }
-        });
-    }
+    widgets::render_status_banner(app.action_status.as_ref(), ui);
 }

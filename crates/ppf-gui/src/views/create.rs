@@ -1,6 +1,7 @@
 use crate::app::{PpfApp, clean_path_str};
+use crate::views::widgets;
 use crate::worker::{FilePickTarget, create_patch_async, pick_file_async, save_file_async};
-use egui::{Color32, RichText, Ui};
+use egui::{RichText, Ui};
 use ppf_core::{ImageType, PpfCreatorOptions};
 use std::path::PathBuf;
 
@@ -252,44 +253,8 @@ pub fn show(app: &mut PpfApp, ui: &mut Ui) {
     });
 
     // Progress Bar (when busy)
-    if app.is_busy {
-        ui.add_space(10.0);
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.label(RichText::new(&app.busy_operation).strong());
-            ui.add_space(2.0);
-            ui.add(
-                egui::ProgressBar::new(app.progress)
-                    .show_percentage()
-                    .animate(true),
-            );
-            ui.label(&app.progress_msg);
-        });
-    }
+    widgets::render_progress(app, ui);
 
     // Status Banner
-    if let Some(status) = &app.create_status {
-        ui.add_space(10.0);
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            match status {
-                Ok(msg) => {
-                    ui.label(
-                        RichText::new(msg)
-                            .color(Color32::from_rgb(100, 230, 120))
-                            .size(14.0)
-                            .strong(),
-                    );
-                }
-                Err(err) => {
-                    ui.label(
-                        RichText::new(format!("Error: {}", err))
-                            .color(Color32::from_rgb(255, 100, 100))
-                            .size(14.0)
-                            .strong(),
-                    );
-                }
-            }
-        });
-    }
+    widgets::render_status_banner(app.create_status.as_ref(), ui);
 }

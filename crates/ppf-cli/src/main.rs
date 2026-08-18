@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
-use ppf_rust::{
+use ppf_core::{
     ImageType, PatchInfo, PpfCreatorOptions, PpfVersion, apply_patch, create_patch, inspect_patch,
     undo_patch,
 };
@@ -193,7 +193,7 @@ fn main() -> anyhow::Result<()> {
                 } else {
                     ImageType::Bin
                 },
-                description: "PPF3 Patch".to_owned(),
+                description: ppf_core::DEFAULT_DESCRIPTION.to_owned(),
                 file_id: None,
             };
 

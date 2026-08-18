@@ -1,31 +1,16 @@
-use crate::core::{ImageType, PpfError, PpfVersion};
+use crate::core::{ImageType, PpfError, PpfHeader};
 use crate::parser::PpfFile;
 use memmap2::MmapMut;
 use std::fs::OpenOptions;
 use std::path::Path;
 
-/// Summary metadata and status extracted from a PPF patch header.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PatchInfo {
-    pub version: PpfVersion,
-    pub description: String,
-    pub file_id: Option<String>,
-    pub image_type: ImageType,
-    pub has_undo: bool,
-    pub block_check: bool,
-}
+/// Alias for header metadata returned when inspecting or applying a patch.
+pub type PatchInfo = PpfHeader;
 
 /// Inspects a PPF patch file and returns its header metadata without modifying any binary.
 pub fn inspect_patch(patch_path: impl AsRef<Path>) -> Result<PatchInfo, PpfError> {
     let ppf = PpfFile::open(patch_path)?;
-    Ok(PatchInfo {
-        version: ppf.header.version,
-        description: ppf.header.description,
-        file_id: ppf.header.file_id,
-        image_type: ppf.header.image_type,
-        has_undo: ppf.header.has_undo,
-        block_check: ppf.header.block_check,
-    })
+    Ok(ppf.header)
 }
 
 /// Applies a PPF patch (v1.0, v2.0, or v3.0) to a target binary file.
@@ -88,9 +73,10 @@ fn process_patch(
     }
 
     let mut bin_mmap = unsafe { MmapMut::map_mut(&bin_file)? };
+    #[cfg(unix)]
     bin_mmap.advise(memmap2::Advice::Sequential)?;
 
-    if let Some(expected_block) = &ppf.header.block_data {
+    if !is_undo && let Some(expected_block) = &ppf.header.block_data {
         let block_offset = if ppf.header.image_type == ImageType::Gi {
             0x80A0usize
         } else {
@@ -142,12 +128,5 @@ fn process_patch(
 
     bin_mmap.flush()?;
 
-    Ok(PatchInfo {
-        version: ppf.header.version,
-        description: ppf.header.description,
-        file_id: ppf.header.file_id,
-        image_type: ppf.header.image_type,
-        has_undo: ppf.header.has_undo,
-        block_check: ppf.header.block_check,
-    })
+    Ok(ppf.header)
 }

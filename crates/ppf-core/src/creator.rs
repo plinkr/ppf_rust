@@ -8,6 +8,10 @@ use std::path::Path;
 const WRITE_BUF: usize = 8 * 1024 * 1024;
 const CHUNK_SIZE: usize = 1024 * 1024;
 
+/// Default PPF3 patch description containing application name and compiled version.
+pub const DEFAULT_DESCRIPTION: &str =
+    concat!("Created with PPF Rust Patcher v", env!("CARGO_PKG_VERSION"));
+
 /// Configuration options for creating a PPF3 patch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PpfCreatorOptions {
@@ -21,7 +25,7 @@ pub struct PpfCreatorOptions {
 impl Default for PpfCreatorOptions {
     fn default() -> Self {
         Self {
-            description: "PPF3 Patch".to_owned(),
+            description: DEFAULT_DESCRIPTION.to_owned(),
             image_type: ImageType::Bin,
             block_check: true,
             undo_data: false,
@@ -69,8 +73,11 @@ pub fn create_patch(
     let orig_mmap = unsafe { Mmap::map(&orig_file)? };
     let mod_mmap = unsafe { Mmap::map(&mod_file)? };
 
-    orig_mmap.advise(memmap2::Advice::Sequential)?;
-    mod_mmap.advise(memmap2::Advice::Sequential)?;
+    #[cfg(unix)]
+    {
+        orig_mmap.advise(memmap2::Advice::Sequential)?;
+        mod_mmap.advise(memmap2::Advice::Sequential)?;
+    }
 
     let output = BufWriter::with_capacity(WRITE_BUF, File::create(output_path)?);
     create_patch_mmap(&orig_mmap, &mod_mmap, output, options, progress_cb)

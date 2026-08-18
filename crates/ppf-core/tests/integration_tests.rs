@@ -1,6 +1,6 @@
-use ppf_rust::applier;
-use ppf_rust::core::ImageType;
-use ppf_rust::creator::{self, PpfCreatorOptions};
+use ppf_core::applier;
+use ppf_core::core::ImageType;
+use ppf_core::creator::{self, PpfCreatorOptions};
 use std::io::Write;
 use tempfile::NamedTempFile;
 
@@ -274,4 +274,49 @@ fn test_create_patch_stream_roundtrip() {
     applier::apply_patch(ppf_file.path(), target_bin.path(), None, None).unwrap();
     let result = std::fs::read(target_bin.path()).unwrap();
     assert_eq!(result, mod_data);
+}
+
+#[test]
+fn test_undo_patch_with_blockcheck_modification() {
+    let mut orig_file = NamedTempFile::new().unwrap();
+    let mut mod_file = NamedTempFile::new().unwrap();
+    let ppf_file = NamedTempFile::new().unwrap();
+
+    let size = 0x9320 + 2048;
+    let mut orig_data = vec![0x11u8; size];
+    let mut mod_data = vec![0x11u8; size];
+
+    // Modify bytes directly within the blockcheck validation region (0x9320..0x9320+1024)
+    orig_data[0x9320..0x9320 + 10].fill(0xAA);
+    mod_data[0x9320..0x9320 + 10].fill(0xBB);
+
+    orig_file.write_all(&orig_data).unwrap();
+    mod_file.write_all(&mod_data).unwrap();
+
+    let options = PpfCreatorOptions {
+        description: "Blockcheck undo test".to_string(),
+        image_type: ImageType::Bin,
+        block_check: true,
+        undo_data: true,
+        file_id: None,
+    };
+
+    creator::create_patch(
+        orig_file.path(),
+        mod_file.path(),
+        ppf_file.path(),
+        &options,
+        None,
+    )
+    .unwrap();
+
+    // Apply patch to original
+    applier::apply_patch(ppf_file.path(), orig_file.path(), None, None).unwrap();
+    let applied = std::fs::read(orig_file.path()).unwrap();
+    assert_eq!(applied[0x9320..0x9320 + 10], [0xBB; 10]);
+
+    // Undo patch from modified image
+    applier::undo_patch(ppf_file.path(), orig_file.path(), None, None).unwrap();
+    let restored = std::fs::read(orig_file.path()).unwrap();
+    assert_eq!(restored[0x9320..0x9320 + 10], [0xAA; 10]);
 }

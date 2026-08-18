@@ -1,0 +1,16 @@
+[package]
+name = "ppf-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "ppf_cli"
+path = "src/main.rs"
+
+[dependencies]
+ppf-core.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+indicatif.workspace = true

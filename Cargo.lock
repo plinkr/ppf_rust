@@ -2312,6 +2312,7 @@ version = "0.3.0"
 dependencies = [
  "eframe",
  "egui",
+ "image",
  "ppf-core",
  "rfd",
 ]

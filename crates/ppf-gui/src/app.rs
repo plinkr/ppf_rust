@@ -16,10 +16,22 @@ pub fn clean_path_str(path: &str) -> String {
     path.trim().trim_matches(&['\'', '"'][..]).to_string()
 }
 
+fn load_app_logo_texture(ctx: &egui::Context) -> Option<egui::TextureHandle> {
+    let icon_bytes = include_bytes!("../assets/app_logo.png");
+    let image = image::load_from_memory(icon_bytes).ok()?.into_rgba8();
+    let (width, height) = image.dimensions();
+    let color_image = egui::ColorImage::from_rgba_unmultiplied(
+        [width as usize, height as usize],
+        image.as_flat_samples().as_slice(),
+    );
+    Some(ctx.load_texture("app_logo", color_image, egui::TextureOptions::LINEAR))
+}
+
 pub struct PpfApp {
     pub active_tab: Tab,
     pub tx_event: Sender<WorkerEvent>,
     pub rx_event: Receiver<WorkerEvent>,
+    pub logo_texture: Option<egui::TextureHandle>,
 
     // Busy & Progress state
     pub is_busy: bool,
@@ -57,13 +69,15 @@ pub struct PpfApp {
 }
 
 impl PpfApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let (tx_event, rx_event) = channel();
+        let logo_texture = load_app_logo_texture(&cc.egui_ctx);
 
         Self {
             active_tab: Tab::ApplyUndo,
             tx_event,
             rx_event,
+            logo_texture,
 
             is_busy: false,
             busy_operation: String::new(),
@@ -341,13 +355,16 @@ impl eframe::App for PpfApp {
 
         // Help dialog window
         if self.show_help {
-            views::help::show(&mut self.show_help, ctx);
+            views::help::show(&mut self.show_help, ctx, self.logo_texture.as_ref());
         }
 
         // Top Header and Tab Bar
         egui::TopBottomPanel::top("top_navigation_panel").show(ctx, |ui| {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
+                if let Some(texture) = &self.logo_texture {
+                    ui.image((texture.id(), egui::vec2(22.0, 22.0)));
+                }
                 ui.heading(
                     RichText::new("PPF Rust Patcher")
                         .strong()

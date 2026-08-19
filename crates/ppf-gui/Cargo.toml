@@ -14,3 +14,4 @@ ppf-core.workspace = true
 eframe.workspace = true
 egui.workspace = true
 rfd.workspace = true
+image.workspace = true

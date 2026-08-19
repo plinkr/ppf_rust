@@ -1,6 +1,6 @@
-use egui::{Color32, RichText, Window};
+use egui::{Color32, RichText, TextureHandle, Window};
 
-pub fn show(open: &mut bool, ctx: &egui::Context) {
+pub fn show(open: &mut bool, ctx: &egui::Context, logo: Option<&TextureHandle>) {
     let mut is_open = *open;
     let mut close_requested = false;
 
@@ -12,7 +12,12 @@ pub fn show(open: &mut bool, ctx: &egui::Context) {
         .show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.add_space(4.0);
-                ui.heading("Welcome to PPF Rust Patcher!");
+                ui.horizontal(|ui| {
+                    if let Some(texture) = logo {
+                        ui.image((texture.id(), egui::vec2(64.0, 64.0)));
+                    }
+                    ui.heading("Welcome to PPF Rust Patcher!");
+                });
                 ui.label(
                     RichText::new(
                         "This tool allows you to easily apply, reverse, and create PPF (PlayStation Patch Format) patches for disc images (CD/DVD) and ROM files without needing complex command-line tools.",

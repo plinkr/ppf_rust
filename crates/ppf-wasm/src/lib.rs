@@ -1,6 +1,6 @@
 use ppf_core::{
-    ImageType, PatchInfo, PpfCreatorOptions, apply_patch_slice, create_patch_slice,
-    inspect_patch_slice, undo_patch_slice,
+    ImageType, PatchAction, PatchInfo, PpfCreatorOptions, create_patch_slice, inspect_patch_slice,
+    patch_slice,
 };
 use serde::Deserialize;
 use std::cell::Cell;
@@ -18,6 +18,10 @@ impl SendSyncFn {
             .0
             .call2(&JsValue::NULL, &JsValue::from(done), &JsValue::from(total));
     }
+}
+
+fn js_err(err: impl std::fmt::Display) -> JsValue {
+    JsValue::from(js_sys::Error::new(&err.to_string()))
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -38,18 +42,15 @@ pub fn get_app_version() -> String {
 /// Inspects a PPF patch from an in-memory byte slice and returns patch metadata.
 #[wasm_bindgen]
 pub fn inspect_patch(patch_bytes: &[u8]) -> Result<JsValue, JsValue> {
-    let info = inspect_patch_slice(patch_bytes)
-        .map_err(|err| JsValue::from(js_sys::Error::new(&err.to_string())))?;
-    serde_wasm_bindgen::to_value(&info)
-        .map_err(|err| JsValue::from(js_sys::Error::new(&err.to_string())))
+    let info = inspect_patch_slice(patch_bytes).map_err(js_err)?;
+    serde_wasm_bindgen::to_value(&info).map_err(js_err)
 }
 
-/// Applies a PPF patch to a target binary byte slice in-place.
-#[wasm_bindgen]
-pub fn apply_patch(
+fn process_patch_wasm(
     patch_bytes: &[u8],
     target_bytes: &mut [u8],
     progress_cb: Option<js_sys::Function>,
+    action: PatchAction,
 ) -> Result<JsValue, JsValue> {
     let total_records = Rc::new(Cell::new(0usize));
     let done_records = Rc::new(Cell::new(0usize));
@@ -85,70 +86,45 @@ pub fn apply_patch(
         }
     });
 
-    let info: PatchInfo = apply_patch_slice(
+    let on_start_dyn = on_start.as_ref().map(|f| f as &dyn Fn(usize));
+    let on_progress_dyn = on_progress.as_ref().map(|f| f as &dyn Fn(usize));
+
+    let info: PatchInfo = patch_slice(
         patch_bytes,
         target_bytes,
-        on_start.as_ref().map(|f| f as &dyn Fn(usize)),
-        on_progress.as_ref().map(|f| f as &dyn Fn(usize)),
+        action,
+        on_start_dyn,
+        on_progress_dyn,
     )
-    .map_err(|err| JsValue::from(js_sys::Error::new(&err.to_string())))?;
+    .map_err(js_err)?;
 
-    serde_wasm_bindgen::to_value(&info)
-        .map_err(|err| JsValue::from(js_sys::Error::new(&err.to_string())))
+    serde_wasm_bindgen::to_value(&info).map_err(js_err)
 }
 
-/// Reverses/undoes a PPF3 patch on a target binary byte slice in-place.
-#[wasm_bindgen]
-pub fn undo_patch(
-    patch_bytes: &[u8],
-    target_bytes: &mut [u8],
-    progress_cb: Option<js_sys::Function>,
-) -> Result<JsValue, JsValue> {
-    let total_records = Rc::new(Cell::new(0usize));
-    let done_records = Rc::new(Cell::new(0usize));
-
-    let total_start = total_records.clone();
-    let on_start = progress_cb.as_ref().map(|cb| {
-        let cb = cb.clone();
-        move |total: usize| {
-            total_start.set(total);
-            let _ = cb.call2(
-                &JsValue::NULL,
-                &JsValue::from(0usize),
-                &JsValue::from(total as f64),
-            );
+macro_rules! def_wasm_patch_fn {
+    ($name:ident, $action:ident, $doc:expr) => {
+        #[doc = $doc]
+        #[wasm_bindgen]
+        pub fn $name(
+            patch_bytes: &[u8],
+            target_bytes: &mut [u8],
+            progress_cb: Option<js_sys::Function>,
+        ) -> Result<JsValue, JsValue> {
+            process_patch_wasm(patch_bytes, target_bytes, progress_cb, PatchAction::$action)
         }
-    });
-
-    let total_progress = total_records.clone();
-    let done_progress = done_records.clone();
-    let on_progress = progress_cb.as_ref().map(|cb| {
-        let cb = cb.clone();
-        move |count: usize| {
-            let done = done_progress.get() + count;
-            done_progress.set(done);
-            let total = total_progress.get();
-            if total > 0 && (done == total || done.is_multiple_of(200)) {
-                let _ = cb.call2(
-                    &JsValue::NULL,
-                    &JsValue::from(done as f64),
-                    &JsValue::from(total as f64),
-                );
-            }
-        }
-    });
-
-    let info: PatchInfo = undo_patch_slice(
-        patch_bytes,
-        target_bytes,
-        on_start.as_ref().map(|f| f as &dyn Fn(usize)),
-        on_progress.as_ref().map(|f| f as &dyn Fn(usize)),
-    )
-    .map_err(|err| JsValue::from(js_sys::Error::new(&err.to_string())))?;
-
-    serde_wasm_bindgen::to_value(&info)
-        .map_err(|err| JsValue::from(js_sys::Error::new(&err.to_string())))
+    };
 }
+
+def_wasm_patch_fn!(
+    apply_patch,
+    Apply,
+    "Applies a PPF patch to a target binary byte slice in-place."
+);
+def_wasm_patch_fn!(
+    undo_patch,
+    Undo,
+    "Reverses/undoes a PPF3 patch on a target binary byte slice in-place."
+);
 
 /// Creates a PPF3 patch comparing original and modified binary byte slices.
 #[wasm_bindgen]
@@ -161,8 +137,7 @@ pub fn create_patch(
     let wasm_opts: WasmCreatorOptions = if options.is_undefined() || options.is_null() {
         WasmCreatorOptions::default()
     } else {
-        serde_wasm_bindgen::from_value(options)
-            .map_err(|err| JsValue::from(js_sys::Error::new(&err.to_string())))?
+        serde_wasm_bindgen::from_value(options).map_err(js_err)?
     };
 
     let img_type = match wasm_opts.image_type.as_deref() {
@@ -202,7 +177,7 @@ pub fn create_patch(
             .as_ref()
             .map(|f| f as &(dyn Fn(usize) + Sync + Send)),
     )
-    .map_err(|err| JsValue::from(js_sys::Error::new(&err.to_string())))?;
+    .map_err(js_err)?;
 
     Ok(js_sys::Uint8Array::from(&output[..]))
 }

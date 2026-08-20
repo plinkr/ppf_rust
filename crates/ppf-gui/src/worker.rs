@@ -119,6 +119,53 @@ pub fn inspect_patch_async(
     });
 }
 
+fn create_record_progress_callbacks(
+    action: &'static str,
+    tx: Sender<WorkerEvent>,
+) -> (
+    impl Fn(usize) + Send + Sync + 'static,
+    impl Fn(usize) + Send + Sync + 'static,
+) {
+    let total_records = Arc::new(AtomicUsize::new(0));
+    let current_records = Arc::new(AtomicUsize::new(0));
+
+    let tx_start = tx.clone();
+    let total_start = Arc::clone(&total_records);
+    let on_start = move |total: usize| {
+        total_start.store(total, Ordering::SeqCst);
+        let _ = tx_start.send(WorkerEvent::Progress {
+            ratio: 0.0,
+            message: format!(
+                "Starting {}: 0 / {} records (0.0%)",
+                action.to_lowercase(),
+                total
+            ),
+        });
+    };
+
+    let total_prog = Arc::clone(&total_records);
+    let current_prog = Arc::clone(&current_records);
+    let on_progress = move |records: usize| {
+        let done = current_prog.fetch_add(records, Ordering::Relaxed) + records;
+        let total = total_prog.load(Ordering::Relaxed);
+        if total > 0 && (done == total || done.is_multiple_of(200)) {
+            let ratio = (done as f32 / total as f32).clamp(0.0, 1.0);
+            let _ = tx.send(WorkerEvent::Progress {
+                ratio,
+                message: format!(
+                    "{}: {} / {} records ({:.1}%)",
+                    action,
+                    done,
+                    total,
+                    ratio * 100.0
+                ),
+            });
+        }
+    };
+
+    (on_start, on_progress)
+}
+
 pub fn apply_patch_async(
     patch_path: PathBuf,
     bin_path: PathBuf,
@@ -157,38 +204,7 @@ pub fn apply_patch_async(
             dest
         };
 
-        let total_records = Arc::new(AtomicUsize::new(0));
-        let current_records = Arc::new(AtomicUsize::new(0));
-
-        let tx_start = tx.clone();
-        let total_clone = Arc::clone(&total_records);
-        let on_start = move |total: usize| {
-            total_clone.store(total, Ordering::SeqCst);
-            let _ = tx_start.send(WorkerEvent::Progress {
-                ratio: 0.0,
-                message: format!("Starting: 0 / {} records (0.0%)", total),
-            });
-        };
-
-        let tx_progress = tx.clone();
-        let current_clone = Arc::clone(&current_records);
-        let total_clone_for_progress = Arc::clone(&total_records);
-        let on_progress = move |records: usize| {
-            let done = current_clone.fetch_add(records, Ordering::Relaxed) + records;
-            let total = total_clone_for_progress.load(Ordering::Relaxed);
-            if total > 0 && (done == total || done.is_multiple_of(200)) {
-                let ratio = (done as f32 / total as f32).clamp(0.0, 1.0);
-                let _ = tx_progress.send(WorkerEvent::Progress {
-                    ratio,
-                    message: format!(
-                        "Applying: {} / {} records ({:.1}%)",
-                        done,
-                        total,
-                        ratio * 100.0
-                    ),
-                });
-            }
-        };
+        let (on_start, on_progress) = create_record_progress_callbacks("Applying", tx.clone());
 
         let result = apply_patch(
             &patch_path,
@@ -209,38 +225,7 @@ pub fn apply_patch_async(
 
 pub fn undo_patch_async(patch_path: PathBuf, bin_path: PathBuf, tx: Sender<WorkerEvent>) {
     thread::spawn(move || {
-        let total_records = Arc::new(AtomicUsize::new(0));
-        let current_records = Arc::new(AtomicUsize::new(0));
-
-        let tx_start = tx.clone();
-        let total_clone = Arc::clone(&total_records);
-        let on_start = move |total: usize| {
-            total_clone.store(total, Ordering::SeqCst);
-            let _ = tx_start.send(WorkerEvent::Progress {
-                ratio: 0.0,
-                message: format!("Starting undo: 0 / {} records (0.0%)", total),
-            });
-        };
-
-        let tx_progress = tx.clone();
-        let current_clone = Arc::clone(&current_records);
-        let total_clone_for_progress = Arc::clone(&total_records);
-        let on_progress = move |records: usize| {
-            let done = current_clone.fetch_add(records, Ordering::Relaxed) + records;
-            let total = total_clone_for_progress.load(Ordering::Relaxed);
-            if total > 0 && (done == total || done.is_multiple_of(200)) {
-                let ratio = (done as f32 / total as f32).clamp(0.0, 1.0);
-                let _ = tx_progress.send(WorkerEvent::Progress {
-                    ratio,
-                    message: format!(
-                        "Undoing: {} / {} records ({:.1}%)",
-                        done,
-                        total,
-                        ratio * 100.0
-                    ),
-                });
-            }
-        };
+        let (on_start, on_progress) = create_record_progress_callbacks("Undoing", tx.clone());
 
         let result = undo_patch(&patch_path, &bin_path, Some(&on_start), Some(&on_progress))
             .map_err(|err| err.to_string());

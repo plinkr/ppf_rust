@@ -4,9 +4,41 @@
 
 Suite de alto rendimiento en Rust para crear, aplicar, inspeccionar y revertir parches en formato **PlayStation Patch File (PPF v1.0, v2.0 y v3.0)**.
 
-El proyecto está organizado como un **Cargo Workspace** modular compuesto por una biblioteca central (`ppf-core`), una herramienta de línea de comandos (`ppf-cli`) y una interfaz gráfica de escritorio (`ppf-gui`) desarrollada con `egui`.
+El proyecto está organizado como un **Cargo Workspace** modular compuesto por una biblioteca central (`ppf-core`), una herramienta de línea de comandos (`ppf-cli`), una interfaz gráfica de escritorio (`ppf-gui`) desarrollada con `egui`, un paquete WebAssembly (`ppf-wasm`) y una versión web con frontend estático (`web/`) en HTML5 y JavaScript.
 
-Implementa concurrencia con Rayon y lectura/escritura mediante mapeo de memoria (`memmap2`), ofreciendo máxima velocidad de procesamiento con seguridad de memoria estricta.
+Para las herramientas de escritorio (`ppf-cli` y `ppf-gui`), implementa concurrencia con Rayon y operaciones de lectura/escritura mediante mapeo de memoria (`memmap2`), ofreciendo máxima velocidad de procesamiento con seguridad de memoria estricta.
+
+---
+
+<div align="center">
+  <p style="max-width:900px; margin:0 auto;">Capturas de pantalla (haz clic en una miniatura para verla en tamaño completo):</p>
+  <div style="margin-top:12px; overflow-x:auto; white-space:nowrap; padding:8px 4px; -webkit-overflow-scrolling:touch;">
+    <a href="https://github.com/user-attachments/assets/8d67a416-680f-4f7f-8428-a011c8c96a14" target="_blank" rel="noopener">
+      <img src="https://github.com/user-attachments/assets/8d67a416-680f-4f7f-8428-a011c8c96a14" width="280" style="display:inline-block; margin-right:8px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.12);" alt="Crear Parche" />
+    </a>
+    <a href="https://github.com/user-attachments/assets/8cedf8c9-c1e0-4ca8-90fc-6af382b209d6" target="_blank" rel="noopener">
+      <img src="https://github.com/user-attachments/assets/8cedf8c9-c1e0-4ca8-90fc-6af382b209d6" width="280" style="display:inline-block; margin-right:8px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.12);" alt="Aplicar y Revertir" />
+    </a>
+    <a href="https://github.com/user-attachments/assets/b026ae1b-615e-4f27-b795-a5f65e7ab363" target="_blank" rel="noopener">
+      <img src="https://github.com/user-attachments/assets/b026ae1b-615e-4f27-b795-a5f65e7ab363" width="280" style="display:inline-block; margin-right:8px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.12);" alt="Información y DIZ" />
+    </a>
+  </div>
+</div>
+
+---
+
+## Versión Web en Línea (GitHub Pages)
+
+Puedes acceder a la versión web de la aplicación directamente desde el navegador en:
+
+**[https://plinkr.github.io/ppf_rust](https://plinkr.github.io/ppf_rust)**
+
+La versión web ejecuta el motor `ppf-core` compilado a **WebAssembly (WASM)** y cuenta con un frontend en **HTML5, CSS y JavaScript**. El procesamiento se realiza al 100% de forma local en tu navegador mediante Web Workers, por lo que ningún archivo ni imagen de disco se sube a internet.
+
+> **Nota importante sobre el rendimiento:**
+> La versión WebAssembly opera sobre búferes en memoria (`Uint8Array`) y, por restricciones inherentes al entorno del navegador, **no puede utilizar mapeo de memoria (`memmap2`) ni paralelismo multinúcleo (`rayon`)**.
+> 
+> Como consecuencia, su velocidad de procesamiento es considerablemente inferior a las versiones nativas y el consumo de RAM en el navegador aumenta con imágenes de gran tamaño (como archivos BIN/ISO de 500 MB o más). **Se aconseja usar la versión web en última instancia o por conveniencia rápida cuando no tengas acceso a los binarios de escritorio. Para un rendimiento óptimo en archivos grandes, utiliza siempre la versión CLI (`ppf_cli`) o la versión GUI (`ppf_gui`).**
 
 ---
 
@@ -15,28 +47,33 @@ Implementa concurrencia con Rayon y lectura/escritura mediante mapeo de memoria 
 ```text
 ppf_rust/
 ├── Cargo.toml                  # Configuración raíz del workspace
-└── crates/
-    ├── ppf-core/               # Biblioteca del motor PPF (API pública)
-    ├── ppf-cli/                # Interfaz de línea de comandos (binario `ppf_cli`)
-    └── ppf-gui/                # Interfaz gráfica en egui (binario `ppf_gui`)
+├── crates/
+│   ├── ppf-core/               # Biblioteca del motor PPF (API pública modular con feature flags)
+│   ├── ppf-cli/                # Interfaz de línea de comandos (binario `ppf_cli`)
+│   ├── ppf-gui/                # Interfaz gráfica de escritorio en egui (binario `ppf_gui`)
+│   └── ppf-wasm/               # Bindings WebAssembly (wasm-bindgen)
+└── web/                        # Cliente web estático (HTML5, JavaScript, Web Workers, CSS)
 ```
 
-- **`ppf-core`**: Motor central desacoplado de la interfaz. Provee parsing, validación de integridad (Blockcheck), creación paralela, aplicación y reversión de parches con callbacks de progreso.
-- **`ppf-cli`**: Aplicación de terminal (`ppf_cli`) basada en `clap` e `indicatif`, diseñada para automatización, scripts y flujos de trabajo en consola.
+- **`ppf-core`**: Motor central desacoplado de la interfaz. Provee parsing, validación de integridad (Blockcheck), creación paralela, aplicación y reversión de parches con callbacks de progreso. Utiliza *feature flags* (`mmap`, `parallel`, `serde`) para habilitar dependencias nativas en escritorio o compilar de forma ligera para WebAssembly.
+- **`ppf-cli`**: Aplicación de terminal (`ppf_cli`) basada en `clap` e `indicatif`, diseñada para máxima velocidad, automatización y scripts en consola.
 - **`ppf-gui`**: Aplicación de escritorio (`ppf_gui`) multiplataforma basada en `eframe` / `egui`, con soporte para arrastrar y soltar (Drag & Drop), modo seguro con copia de respaldo e inspección visual de parches.
+- **`ppf-wasm`**: Capa de integración WebAssembly que exporta las funciones del motor (`apply_patch`, `undo_patch`, `create_patch`, `inspect_patch`) hacia JavaScript mediante `wasm-bindgen`.
+- **`web`**: Frontend web estático con interfaz de usuario en pestañas, soporte de Drag & Drop y procesamiento asíncrono en segundo plano mediante Web Workers.
 
 ---
 
 ## Características
 
 - **Compatibilidad con estándares PPF**: Soporte completo para lectura y aplicación de versiones **PPF 1.0**, **PPF 2.0** y **PPF 3.0**.
-- **Creación optimizada de PPF3**: Escaneo de diferencias en paralelo por bloques mediante `rayon`, aprovechando todos los núcleos de CPU disponibles.
+- **Creación optimizada de PPF3**: Escaneo de diferencias en paralelo por bloques mediante `rayon` en escritorio, aprovechando todos los núcleos de CPU disponibles.
 - **Validación de integridad (Blockcheck)**: Verificación del bloque de validación de 1024 bytes para imágenes BIN estándar (offset `0x9320`) y formato GI/PrimoDVD (offset `0x80A0`).
 - **Soporte para datos de reversión (Undo Data)**: Generación y aplicación de parches reversibles para restaurar binarios modificados a su estado original bit a bit.
 - **Soporte de metadatos FILE_ID.DIZ**: Inserción y extracción de descripciones extendidas bajo el estándar Amiga/BBS (hasta 3072 bytes).
 - **Interfaz Gráfica (GUI) en egui**: Aplicación visual moderna con soporte de Drag & Drop, selección entre parcheo directo (*in-place*) o copia segura (*safe copy*), visores de metadatos y modales de ayuda.
 - **Interfaz de Línea de Comandos (CLI)**: Subcomandos estructurados (`apply`, `undo`, `info`, `create`) con barras de progreso interactivas y cálculo de tiempo estimado (ETA).
-- **Motor desacoplado**: Biblioteca reutilizable con tipos de error tipados (`thiserror`) y callbacks desacoplados para integraciones personalizadas.
+- **Versión Web (WebAssembly)**: Aplicación web cliente sin dependencias de servidor, lista para usar desde el navegador en GitHub Pages.
+- **Motor desacoplado y condicional**: `ppf-core` gestiona mediante *features* el uso de `memmap2` y `rayon`, manteniendo el máximo rendimiento en escritorio sin comprometer la portabilidad hacia WebAssembly.
 
 ---
 
@@ -46,12 +83,13 @@ ppf_rust/
 
 - **Rust**: Versión 1.85 o superior (Rust Edition 2024).
 - **Cargo**.
+- *(Opcional para WebAssembly)*: Target `wasm32-unknown-unknown` y `wasm-bindgen-cli`.
 
 ---
 
 ### 1. Compilar todo el proyecto (Workspace completo)
 
-Para compilar todos los crates del workspace (`ppf-core`, `ppf-cli` y `ppf-gui`) en modo optimizado:
+Para compilar todos los crates de escritorio del workspace (`ppf-core`, `ppf-cli` y `ppf-gui`) en modo optimizado:
 
 ```bash
 cargo build --release
@@ -108,9 +146,44 @@ cargo build -p ppf-core --release
 
 ---
 
-### 5. Instalación global en el sistema
+### 5. Compilar la versión WebAssembly (`ppf-wasm`) y preparar el cliente web
 
-Puedes instalar los ejecutables directamente en tu directorio `~/.cargo/bin`:
+Si deseas compilar los bindings WebAssembly y generar los paquetes necesarios para servir el frontend web de forma local:
+
+```bash
+# 1. Instalar el target WebAssembly
+rustup target add wasm32-unknown-unknown
+
+# 2. Instalar la herramienta wasm-bindgen-cli
+cargo install wasm-bindgen-cli --version 0.2.100 --locked
+
+# 3. Compilar el crate ppf-wasm para WebAssembly
+cargo build --package ppf-wasm --target wasm32-unknown-unknown --release
+
+# 4. Generar los enlaces JavaScript en el directorio web/pkg
+wasm-bindgen --target web --out-dir web/pkg --out-name ppf_wasm target/wasm32-unknown-unknown/release/ppf_wasm.wasm
+```
+
+Para probar el cliente web localmente, sirve el directorio `web/` con cualquier servidor estático HTTP:
+
+```bash
+# Con Python 3:
+python3 -m http.server 8080 -d web
+
+# O con herramientas como `basic-http-server`:
+basic-http-server web
+
+# O `miniserve`:
+miniserve --index index.html --interfaces 127.0.0.1 --port 8080 web/
+```
+
+Y abre en tu navegador la dirección `http://localhost:8080`.
+
+---
+
+### 6. Instalación global en el sistema
+
+Puedes instalar los ejecutables nativos directamente en tu directorio `~/.cargo/bin`:
 
 ```bash
 # Instalar el CLI globalmente
@@ -134,6 +207,30 @@ cargo run -p ppf-gui --release
 cargo run -p ppf-cli -- --help
 cargo run -p ppf-cli -- info --patch parche.ppf
 ```
+
+---
+
+## Uso de la Versión Web
+
+La versión web está disponible en línea en **[https://plinkr.github.io/ppf_rust](https://plinkr.github.io/ppf_rust)** y ofrece las mismas capacidades funcionales a través del navegador:
+
+1. **Pestaña Aplicar / Revertir (Apply & Undo)**:
+   - Carga la imagen binaria (`.bin`, `.iso`, `.img`, `.cue`, `.raw`) y el parche `.ppf` (vía selector o arrastrando con Drag & Drop).
+   - Inspección en vivo de los metadatos y validación de la imagen.
+   - Aplica o revierte el parche en memoria y descarga automáticamente el archivo binario resultante.
+
+2. **Pestaña Crear (Create Patch)**:
+   - Permite cargar el archivo original y el modificado.
+   - Opciones configurables: descripción, tipo de imagen (BIN/GI), validación de bloque (Blockcheck), datos de reversión (Undo) y archivo `FILE_ID.DIZ`.
+   - Generación y descarga del parche `.ppf` procesado en un Web Worker en segundo plano.
+
+3. **Pestaña Inspeccionar (Info & DIZ)**:
+   - Muestra detalles completos de la cabecera PPF e incluye un visor de texto para descripciones `FILE_ID.DIZ` con botón de copia al portapapeles.
+
+4. **Guía de Ayuda (Help & Guide)**:
+   - Instrucciones paso a paso sobre el formato PPF y soluciones a incidencias habituales.
+
+> *Recordatorio de rendimiento:* La versión web es una alternativa práctica cuando no es posible instalar binarios de escritorio. No obstante, al carecer de `rayon` y `memmap2`, para imágenes de disco pesadas se aconseja priorizar las aplicaciones de escritorio (`ppf_cli` o `ppf_gui`).
 
 ---
 
@@ -245,6 +342,7 @@ Para integrar el motor de parcheo en tu propio proyecto de Rust, añade `ppf-cor
 
 ```toml
 [dependencies]
+# Por defecto incluye soporte para memoria mapeada (memmap2) y escaneo paralelo (rayon)
 ppf-core = { git = "https://github.com/plinkr/ppf_rust.git" }
 ```
 
@@ -254,6 +352,23 @@ O si utilizas una ruta local en tu propio workspace:
 [dependencies]
 ppf-core = { path = "../ppf_rust/crates/ppf-core" }
 ```
+
+### Configuración de Features (`ppf-core`)
+
+`ppf-core` permite seleccionar las características necesarias según el entorno de destino:
+
+- **`mmap`** *(por defecto)*: Habilita el soporte de lectura y escritura eficiente en disco mediante `memmap2` (`apply_patch`, `undo_patch`, `create_patch`, `inspect_patch`, `PpfFile`).
+- **`parallel`** *(por defecto)*: Habilita el procesamiento multinúcleo con `rayon` para la creación de parches.
+- **`serde`** *(opcional)*: Habilita `Serialize` y `Deserialize` para estructuras de datos (`PpfHeader`, `PpfCreatorOptions`).
+
+Para entornos embebidos o compilación para WebAssembly (`wasm32-unknown-unknown`), puedes desactivar las dependencias por defecto para operar exclusivamente con búferes en memoria (`&[u8]` y `&mut [u8]`):
+
+```toml
+[dependencies]
+ppf-core = { git = "https://github.com/plinkr/ppf_rust.git", default-features = false, features = ["serde"] }
+```
+
+---
 
 ### Ejemplo 1: Inspeccionar metadatos de un parche
 
@@ -276,9 +391,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Ejemplo 2: Aplicar o revertir un parche con callbacks de progreso
-
-La biblioteca permite conectar callbacks para monitorizar el progreso en interfaces gráficas o consolas personalizadas:
+### Ejemplo 2: Aplicar o revertir un parche en disco con callbacks de progreso
 
 ```rust
 use ppf_core::{apply_patch, undo_patch};
@@ -292,7 +405,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Invocado por cada bloque o registro aplicado
     };
 
-    // Aplicar parche directamente al binario
+    // Aplicar parche directamente al binario en disco
     apply_patch(
         "traduccion.ppf",
         "juego.bin",
@@ -339,6 +452,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     println!("Parche generado exitosamente con {} diferencias.", total_diffs);
+    Ok(())
+}
+```
+
+### Ejemplo 4: Operaciones en memoria o WebAssembly (`_slice`)
+
+Si operas en entornos WebAssembly o procesas búferes en memoria sin tocar el disco:
+
+```rust
+use ppf_core::{apply_patch_slice, inspect_patch_slice, undo_patch_slice};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let patch_bytes = std::fs::read("parche.ppf")?;
+    let mut target_bytes = std::fs::read("juego.bin")?;
+
+    // Inspeccionar cabecera desde bytes
+    let info = inspect_patch_slice(&patch_bytes)?;
+    println!("Parche para imagen: {:?}", info.image_type);
+
+    // Aplicar modificaciones directamente al slice mutable
+    apply_patch_slice(&patch_bytes, &mut target_bytes, None, None)?;
+
     Ok(())
 }
 ```
@@ -461,6 +596,30 @@ Summary
 | `ppf_cli apply` (Rust) | **2.9 ms ± 0.1 ms** | 2.8 ms | 3.4 ms | **46.11x más rápido** |
 | `applyppf3` (C) | 135.3 ms ± 4.9 ms | 127.8 ms | 155.4 ms | Referencia |
 
+### 4. Aplicación de parche con modificaciones aleatorias - 50 ejecuciones (Warm Cache / En memoria)
+
+Prueba de estrés realizada aplicando un parche compuesto por un volumen masivo de modificaciones distribuidas de manera completamente aleatoria en el binario ppf.
+
+En este escenario con dispersión aleatoria extrema, la diferencia de rendimiento entre ambas implementaciones se vuelve muy notable, la versión de referencia en C (`applyppf3`) demora más de 14 segundos debido a la sobrecarga del esquema clásico de I/O, mientras que la implementación en Rust (`ppf_cli`) mediante memoria mapeada (`memmap2`) completa la operación de forma consistente en menos de 900 ms (~826 ms), resultando más de **17 veces más rápida**.
+
+```bash
+Benchmark 1: C Version (applyppf3) - warm
+  Time (mean ± σ):     14.108 s ±  0.335 s    [User: 7.292 s, System: 6.772 s]
+  Range (min … max):   13.711 s … 15.820 s    50 runs
+
+Benchmark 2: Rust Version (ppf_cli) - warm
+  Time (mean ± σ):     826.0 ms ±  11.7 ms    [User: 473.3 ms, System: 349.0 ms]
+  Range (min … max):   788.9 ms … 853.4 ms    50 runs
+
+Summary
+  Rust Version (ppf_cli) - warm ran
+   17.08 ± 0.47 times faster than C Version (applyppf3) - warm
+```
+
+| Comando | Media | Mínimo | Máximo | Rendimiento Relativo |
+|:---|---:|---:|---:|---:|
+| `ppf_cli apply` (Rust) | **826.0 ms ± 11.7 ms** | 788.9 ms | 853.4 ms | **17.08x más rápido** |
+| `applyppf3` (C) | 14.108 s ± 0.335 s | 13.711 s | 15.820 s | Referencia |
 
 ---
 

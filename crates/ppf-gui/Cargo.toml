@@ -15,3 +15,9 @@ eframe.workspace = true
 egui.workspace = true
 rfd.workspace = true
 image.workspace = true
+md-5.workspace = true
+sha1.workspace = true
+crc32fast.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

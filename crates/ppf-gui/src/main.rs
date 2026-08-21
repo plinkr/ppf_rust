@@ -18,8 +18,8 @@ fn load_app_icon() -> Option<egui::IconData> {
 
 fn main() -> eframe::Result<()> {
     let mut viewport = egui::ViewportBuilder::default()
-        .with_inner_size([740.0, 580.0])
-        .with_min_inner_size([640.0, 520.0])
+        .with_inner_size([740.0, 640.0])
+        .with_min_inner_size([680.0, 560.0])
         .with_title("PPF Rust Patcher")
         .with_drag_and_drop(true);
 

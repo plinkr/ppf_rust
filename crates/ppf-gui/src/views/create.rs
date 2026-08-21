@@ -5,6 +5,53 @@ use egui::{RichText, Ui};
 use ppf_core::{ImageType, PpfCreatorOptions};
 use std::path::PathBuf;
 
+struct FilePickerConfig<'a> {
+    label: &'a str,
+    path: &'a mut String,
+    hint: &'a str,
+    input_tooltip: &'a str,
+    button_tooltip: &'a str,
+    target: FilePickTarget,
+    dialog_title: &'static str,
+}
+
+fn render_disc_picker_row(
+    ui: &mut Ui,
+    config: FilePickerConfig<'_>,
+    is_busy: bool,
+    tx_event: &std::sync::mpsc::Sender<crate::worker::WorkerEvent>,
+    status: &mut Option<Result<String, String>>,
+) {
+    ui.label(RichText::new(config.label).strong());
+    ui.horizontal(|ui| {
+        let edit = ui
+            .add(
+                egui::TextEdit::singleline(config.path)
+                    .hint_text(config.hint)
+                    .desired_width(ui.available_width() - 100.0),
+            )
+            .on_hover_text(config.input_tooltip);
+        if edit.changed() {
+            *status = None;
+        }
+
+        let browse_btn = ui
+            .add_enabled(!is_busy, egui::Button::new("Browse..."))
+            .on_hover_text(config.button_tooltip);
+        if browse_btn.clicked() {
+            pick_file_async(
+                config.target,
+                config.dialog_title,
+                vec![
+                    ("Disc Images", &["bin", "iso", "img", "cue", "raw"]),
+                    ("All Files", &["*"]),
+                ],
+                tx_event.clone(),
+            );
+        }
+    });
+}
+
 pub fn show(app: &mut PpfApp, ui: &mut Ui) {
     ui.add_space(8.0);
 
@@ -15,60 +62,40 @@ pub fn show(app: &mut PpfApp, ui: &mut Ui) {
         ui.add_space(4.0);
 
         // Original Unpatched Binary
-        ui.label(RichText::new("Original Binary File (Unmodified):").strong());
-        ui.horizontal(|ui| {
-            let edit = ui.add(
-                egui::TextEdit::singleline(&mut app.create_original_path)
-                    .hint_text("/path/to/original.bin or drag & drop file here")
-                    .desired_width(ui.available_width() - 100.0),
-            ).on_hover_text("Path to the clean, unmodified original binary or disc image.\nYou can also drag & drop the file directly into the window.");
-            if edit.changed() {
-                app.create_status = None;
-            }
-
-            let browse_orig = ui.add_enabled(!app.is_busy, egui::Button::new("Browse..."))
-                .on_hover_text("Open file chooser to select original unpatched file");
-            if browse_orig.clicked() {
-                pick_file_async(
-                    FilePickTarget::CreateOriginal,
-                    "Select Original Unpatched Binary",
-                    vec![
-                        ("Disc Images", &["bin", "iso", "img", "cue", "raw"]),
-                        ("All Files", &["*"]),
-                    ],
-                    app.tx_event.clone(),
-                );
-            }
-        });
+        render_disc_picker_row(
+            ui,
+            FilePickerConfig {
+                label: "Original Binary File (Unmodified):",
+                path: &mut app.create_original_path,
+                hint: "/path/to/original.bin or drag & drop file here",
+                input_tooltip: "Path to the clean, unmodified original binary or disc image.\nYou can also drag & drop the file directly into the window.",
+                button_tooltip: "Open file chooser to select original unpatched file",
+                target: FilePickTarget::CreateOriginal,
+                dialog_title: "Select Original Unpatched Binary",
+            },
+            app.is_busy,
+            &app.tx_event,
+            &mut app.create_status,
+        );
 
         ui.add_space(6.0);
 
         // Modified Binary
-        ui.label(RichText::new("Modified Binary File (Patched/Translated):").strong());
-        ui.horizontal(|ui| {
-            let edit = ui.add(
-                egui::TextEdit::singleline(&mut app.create_patched_path)
-                    .hint_text("/path/to/modified.bin or drag & drop file here")
-                    .desired_width(ui.available_width() - 100.0),
-            ).on_hover_text("Path to the modified, translated, or hacked binary file.\nMust be identical in byte size to the original file.\nYou can also drag & drop the file directly into the window.");
-            if edit.changed() {
-                app.create_status = None;
-            }
-
-            let browse_mod = ui.add_enabled(!app.is_busy, egui::Button::new("Browse..."))
-                .on_hover_text("Open file chooser to select modified binary image");
-            if browse_mod.clicked() {
-                pick_file_async(
-                    FilePickTarget::CreatePatched,
-                    "Select Modified Binary Image",
-                    vec![
-                        ("Disc Images", &["bin", "iso", "img", "cue", "raw"]),
-                        ("All Files", &["*"]),
-                    ],
-                    app.tx_event.clone(),
-                );
-            }
-        });
+        render_disc_picker_row(
+            ui,
+            FilePickerConfig {
+                label: "Modified Binary File (Patched/Translated):",
+                path: &mut app.create_patched_path,
+                hint: "/path/to/modified.bin or drag & drop file here",
+                input_tooltip: "Path to the modified, translated, or hacked binary file.\nMust be identical in byte size to the original file.\nYou can also drag & drop the file directly into the window.",
+                button_tooltip: "Open file chooser to select modified binary image",
+                target: FilePickTarget::CreatePatched,
+                dialog_title: "Select Modified Binary Image",
+            },
+            app.is_busy,
+            &app.tx_event,
+            &mut app.create_status,
+        );
 
         ui.add_space(6.0);
 

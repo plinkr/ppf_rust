@@ -1,30 +1,48 @@
 use crate::core::{ImageType, PpfError, PpfHeader, PpfRecord, PpfVersion};
+#[cfg(feature = "mmap")]
 use memmap2::Mmap;
+#[cfg(feature = "mmap")]
 use std::fs::File;
+#[cfg(feature = "mmap")]
 use std::path::Path;
 
-/// Memory-mapped PPF file reader providing zero-copy access to records.
-pub struct PpfFile {
+/// Slice-based PPF reader providing zero-copy access to records.
+#[derive(Debug, Clone)]
+pub struct PpfView<'a> {
     pub header: PpfHeader,
-    mmap: Mmap,
+    data: &'a [u8],
     data_start: usize,
     data_end: usize,
 }
 
-impl PpfFile {
-    /// Opens and parses a PPF patch file using memory-mapped I/O.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, PpfError> {
-        let file = File::open(path)?;
-        let file_len = file.metadata()?.len() as usize;
+macro_rules! impl_record_accessors {
+    () => {
+        #[inline]
+        pub fn records(&self) -> PpfRecords<'_> {
+            PpfRecords::new(
+                self.payload_slice(),
+                self.header.version,
+                self.header.has_undo,
+            )
+        }
+
+        #[inline]
+        pub fn count_records(&self) -> Result<usize, PpfError> {
+            self.records().count_records()
+        }
+    };
+}
+
+impl<'a> PpfView<'a> {
+    /// Parses a PPF patch from an in-memory byte slice.
+    pub fn parse(bytes: &'a [u8]) -> Result<Self, PpfError> {
+        let file_len = bytes.len();
 
         if file_len < 56 {
             return Err(PpfError::InvalidMagic(
                 "File too short to be a valid PPF patch".into(),
             ));
         }
-
-        let mmap = unsafe { Mmap::map(&file)? };
-        let bytes = &mmap[..];
 
         let version = match &bytes[..4] {
             b"PPF1" => PpfVersion::V1,
@@ -133,6 +151,42 @@ impl PpfFile {
 
         let data_end = file_len - trailer_len;
 
+        Ok(PpfView {
+            header,
+            data: bytes,
+            data_start,
+            data_end,
+        })
+    }
+
+    #[inline]
+    pub fn payload_slice(&self) -> &'a [u8] {
+        &self.data[self.data_start..self.data_end]
+    }
+
+    impl_record_accessors!();
+}
+
+/// Memory-mapped PPF file reader providing zero-copy access to records.
+#[cfg(feature = "mmap")]
+pub struct PpfFile {
+    pub header: PpfHeader,
+    pub mmap: Mmap,
+    data_start: usize,
+    data_end: usize,
+}
+
+#[cfg(feature = "mmap")]
+impl PpfFile {
+    /// Opens and parses a PPF patch file using memory-mapped I/O.
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, PpfError> {
+        let file = File::open(path)?;
+        let mmap = unsafe { Mmap::map(&file)? };
+        let (header, data_start, data_end) = {
+            let view = PpfView::parse(&mmap)?;
+            (view.header, view.data_start, view.data_end)
+        };
+
         Ok(PpfFile {
             header,
             mmap,
@@ -142,27 +196,17 @@ impl PpfFile {
     }
 
     #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.mmap[..]
+    }
+
+    #[inline]
     pub fn payload_slice(&self) -> &[u8] {
-        &self.mmap[self.data_start..self.data_end]
+        let range = self.data_start..self.data_end;
+        &self.mmap[range]
     }
 
-    pub fn records(&self) -> PpfRecords<'_> {
-        PpfRecords {
-            slice: self.payload_slice(),
-            cursor: 0,
-            version: self.header.version,
-            has_undo: self.header.has_undo,
-        }
-    }
-
-    pub fn count_records(&self) -> Result<usize, PpfError> {
-        let mut count = 0;
-        for res in self.records() {
-            res?;
-            count += 1;
-        }
-        Ok(count)
-    }
+    impl_record_accessors!();
 }
 
 pub struct PpfRecords<'a> {
@@ -170,6 +214,27 @@ pub struct PpfRecords<'a> {
     cursor: usize,
     version: PpfVersion,
     has_undo: bool,
+}
+
+impl<'a> PpfRecords<'a> {
+    #[inline]
+    pub fn new(slice: &'a [u8], version: PpfVersion, has_undo: bool) -> Self {
+        Self {
+            slice,
+            cursor: 0,
+            version,
+            has_undo,
+        }
+    }
+
+    pub fn count_records(self) -> Result<usize, PpfError> {
+        let mut count = 0;
+        for res in self {
+            res?;
+            count += 1;
+        }
+        Ok(count)
+    }
 }
 
 impl<'a> Iterator for PpfRecords<'a> {

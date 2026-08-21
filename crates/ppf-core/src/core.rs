@@ -2,8 +2,10 @@ use thiserror::Error;
 
 /// PPF error types returned across the library.
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PpfError {
     #[error("I/O error: {0}")]
+    #[cfg_attr(feature = "serde", serde(skip))]
     Io(#[from] std::io::Error),
     #[error("Invalid magic bytes: {0}")]
     InvalidMagic(String),
@@ -25,6 +27,7 @@ pub enum PpfError {
 
 /// Supported PPF patch file versions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PpfVersion {
     V1,
     V2,
@@ -33,6 +36,7 @@ pub enum PpfVersion {
 
 /// Disc image type for PPF3 validation offsets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ImageType {
     /// Standard RAW/BIN image (offset 0x9320 for validation).
     Bin,
@@ -42,6 +46,7 @@ pub enum ImageType {
 
 /// Parsed PPF header information.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PpfHeader {
     pub version: PpfVersion,
     pub description: String,
@@ -64,6 +69,7 @@ pub struct PpfRecord<'a> {
 
 /// Owned PPF patch diff record with allocated Vecs.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PpfPatchRecord {
     pub offset: u64,
     pub length: u8,

@@ -77,6 +77,22 @@ fn setup_record_progress(pb: &ProgressBar, total: usize) {
     );
 }
 
+fn setup_byte_progress(pb: &ProgressBar, total: u64) -> anyhow::Result<()> {
+    pb.set_length(total);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")?
+            .progress_chars("#>-"),
+    );
+    Ok(())
+}
+
+fn make_progress_inc_callback(pb: &ProgressBar) -> impl Fn(usize) + '_ {
+    move |count: usize| {
+        pb.inc(count as u64);
+    }
+}
+
 fn print_patch_info(info: &PatchInfo, action: &str, patch_path: &str, bin_path: &str) {
     let version_str = match info.version {
         PpfVersion::V1 => "1.0",
@@ -127,49 +143,42 @@ fn print_patch_info(info: &PatchInfo, action: &str, patch_path: &str, bin_path: 
     }
 }
 
+fn run_patch_command(patch: &str, bin: &str, is_undo: bool) -> anyhow::Result<()> {
+    let pb = ProgressBar::new(0);
+    let on_start_cb = |total: usize| {
+        setup_record_progress(&pb, total);
+    };
+    let progress_cb = make_progress_inc_callback(&pb);
+
+    let on_start = Some(&on_start_cb as &dyn Fn(usize));
+    let on_progress = Some(&progress_cb as &dyn Fn(usize));
+
+    let info = if is_undo {
+        undo_patch(patch, bin, on_start, on_progress)?
+    } else {
+        apply_patch(patch, bin, on_start, on_progress)?
+    };
+
+    pb.finish_and_clear();
+    let (action, success_msg) = if is_undo {
+        ("Undoing", "Patch undone successfully.")
+    } else {
+        ("Applying", "Patch applied successfully.")
+    };
+    print_patch_info(&info, action, patch, bin);
+    println!("{}", success_msg);
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
         Commands::Apply { bin, patch } => {
-            let pb = ProgressBar::new(0);
-            let on_start_cb = |total: usize| {
-                setup_record_progress(&pb, total);
-            };
-            let progress_cb = |records: usize| {
-                pb.inc(records as u64);
-            };
-
-            let info = apply_patch(
-                patch.as_str(),
-                bin.as_str(),
-                Some(&on_start_cb),
-                Some(&progress_cb),
-            )?;
-
-            pb.finish_and_clear();
-            print_patch_info(&info, "Applying", &patch, &bin);
-            println!("Patch applied successfully.");
+            run_patch_command(&patch, &bin, false)?;
         }
         Commands::Undo { bin, patch } => {
-            let pb = ProgressBar::new(0);
-            let on_start_cb = |total: usize| {
-                setup_record_progress(&pb, total);
-            };
-            let progress_cb = |records: usize| {
-                pb.inc(records as u64);
-            };
-
-            let info = undo_patch(
-                patch.as_str(),
-                bin.as_str(),
-                Some(&on_start_cb),
-                Some(&progress_cb),
-            )?;
-
-            pb.finish_and_clear();
-            print_patch_info(&info, "Undoing", &patch, &bin);
-            println!("Patch undone successfully.");
+            run_patch_command(&patch, &bin, true)?;
         }
         Commands::Info { patch } => {
             let info = inspect_patch(patch.as_str())?;
@@ -211,15 +220,9 @@ fn main() -> anyhow::Result<()> {
             println!("Finding differences... ");
 
             let pb = ProgressBar::new(orig_len);
-            pb.set_style(
-                ProgressStyle::default_bar()
-                    .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")?
-                    .progress_chars("#>-"),
-            );
+            setup_byte_progress(&pb, orig_len)?;
 
-            let progress_cb = |bytes: usize| {
-                pb.inc(bytes as u64);
-            };
+            let progress_cb = make_progress_inc_callback(&pb);
 
             let entries_found = create_patch(
                 original.as_str(),

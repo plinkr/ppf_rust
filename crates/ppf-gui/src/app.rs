@@ -1,9 +1,21 @@
 use crate::views;
-use crate::worker::{FilePickTarget, InspectTargetTab, WorkerEvent, inspect_patch_async};
+use crate::worker::{
+    FilePickTarget, HashAlgorithm, InspectTargetTab, WorkerEvent, compute_all_hashes_async,
+    compute_hash_async, inspect_patch_async,
+};
 use egui::{Color32, RichText};
 use ppf_core::{ImageType, PatchInfo};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender, channel};
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum HashState {
+    #[default]
+    NotCalculated,
+    Calculating,
+    Calculated(String),
+    Error(String),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -16,10 +28,22 @@ pub fn clean_path_str(path: &str) -> String {
     path.trim().trim_matches(&['\'', '"'][..]).to_string()
 }
 
+fn load_app_logo_texture(ctx: &egui::Context) -> Option<egui::TextureHandle> {
+    let icon_bytes = include_bytes!("../assets/app_logo.png");
+    let image = image::load_from_memory(icon_bytes).ok()?.into_rgba8();
+    let (width, height) = image.dimensions();
+    let color_image = egui::ColorImage::from_rgba_unmultiplied(
+        [width as usize, height as usize],
+        image.as_flat_samples().as_slice(),
+    );
+    Some(ctx.load_texture("app_logo", color_image, egui::TextureOptions::LINEAR))
+}
+
 pub struct PpfApp {
     pub active_tab: Tab,
     pub tx_event: Sender<WorkerEvent>,
     pub rx_event: Receiver<WorkerEvent>,
+    pub logo_texture: Option<egui::TextureHandle>,
 
     // Busy & Progress state
     pub is_busy: bool,
@@ -39,6 +63,13 @@ pub struct PpfApp {
     pub apply_inspect_error: Option<String>,
     pub action_status: Option<Result<String, String>>,
 
+    // Target image hash state (CRC32, MD5, SHA-1)
+    pub hash_crc32: HashState,
+    pub hash_md5: HashState,
+    pub hash_sha1: HashState,
+    pub hash_source_path: String,
+    pub hash_copied_feedback: Option<(HashAlgorithm, std::time::Instant)>,
+
     // Create tab state
     pub create_original_path: String,
     pub create_patched_path: String,
@@ -57,13 +88,15 @@ pub struct PpfApp {
 }
 
 impl PpfApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let (tx_event, rx_event) = channel();
+        let logo_texture = load_app_logo_texture(&cc.egui_ctx);
 
         Self {
             active_tab: Tab::ApplyUndo,
             tx_event,
             rx_event,
+            logo_texture,
 
             is_busy: false,
             busy_operation: String::new(),
@@ -79,6 +112,12 @@ impl PpfApp {
             apply_patch_info: None,
             apply_inspect_error: None,
             action_status: None,
+
+            hash_crc32: HashState::NotCalculated,
+            hash_md5: HashState::NotCalculated,
+            hash_sha1: HashState::NotCalculated,
+            hash_source_path: String::new(),
+            hash_copied_feedback: None,
 
             create_original_path: String::new(),
             create_patched_path: String::new(),
@@ -160,6 +199,7 @@ impl PpfApp {
                     match result {
                         Ok(apply_res) => {
                             if apply_res.was_in_place {
+                                self.clear_hashes();
                                 self.action_status = Some(Ok(format!(
                                     "Patch applied in-place successfully: '{}'",
                                     apply_res.info.description
@@ -181,6 +221,7 @@ impl PpfApp {
                     self.is_busy = false;
                     match result {
                         Ok(info) => {
+                            self.clear_hashes();
                             self.action_status = Some(Ok(format!(
                                 "Patch reversed successfully: '{}'",
                                 info.description
@@ -205,6 +246,24 @@ impl PpfApp {
                         }
                     }
                 }
+                WorkerEvent::HashComplete {
+                    path,
+                    algorithm,
+                    result,
+                } => {
+                    let current_clean = clean_path_str(&self.apply_bin_path);
+                    if std::path::Path::new(&current_clean) == path {
+                        let state = match result {
+                            Ok(hash) => HashState::Calculated(hash),
+                            Err(err) => HashState::Error(err),
+                        };
+                        match algorithm {
+                            HashAlgorithm::Crc32 => self.hash_crc32 = state,
+                            HashAlgorithm::Md5 => self.hash_md5 = state,
+                            HashAlgorithm::Sha1 => self.hash_sha1 = state,
+                        }
+                    }
+                }
                 WorkerEvent::FilePicked { target, path } => {
                     let path_str = path.to_string_lossy().to_string();
                     match target {
@@ -215,6 +274,7 @@ impl PpfApp {
                                     .to_string_lossy()
                                     .to_string();
                             self.action_status = None;
+                            self.reset_hashes_if_path_changed();
                         }
                         FilePickTarget::ApplyOutputCopy => {
                             self.apply_output_copy_path = path_str;
@@ -293,6 +353,7 @@ impl PpfApp {
                                     .to_string_lossy()
                                     .to_string();
                             self.action_status = None;
+                            self.reset_hashes_if_path_changed();
                         }
                     }
                     Tab::Create => {
@@ -328,6 +389,78 @@ impl PpfApp {
             }
         }
     }
+
+    pub fn reset_hashes_if_path_changed(&mut self) {
+        let clean = clean_path_str(&self.apply_bin_path);
+        if clean != self.hash_source_path {
+            self.hash_source_path = clean;
+            self.hash_crc32 = HashState::NotCalculated;
+            self.hash_md5 = HashState::NotCalculated;
+            self.hash_sha1 = HashState::NotCalculated;
+            self.hash_copied_feedback = None;
+        }
+    }
+
+    pub fn calculate_hash(&mut self, algorithm: HashAlgorithm) {
+        let clean = clean_path_str(&self.apply_bin_path);
+        if clean.is_empty() {
+            return;
+        }
+        let path = PathBuf::from(&clean);
+        if !path.is_file() {
+            let err = "File does not exist or is not a regular file".to_string();
+            match algorithm {
+                HashAlgorithm::Crc32 => self.hash_crc32 = HashState::Error(err),
+                HashAlgorithm::Md5 => self.hash_md5 = HashState::Error(err),
+                HashAlgorithm::Sha1 => self.hash_sha1 = HashState::Error(err),
+            }
+            return;
+        }
+
+        self.hash_source_path = clean;
+        match algorithm {
+            HashAlgorithm::Crc32 => self.hash_crc32 = HashState::Calculating,
+            HashAlgorithm::Md5 => self.hash_md5 = HashState::Calculating,
+            HashAlgorithm::Sha1 => self.hash_sha1 = HashState::Calculating,
+        }
+
+        compute_hash_async(path, algorithm, self.tx_event.clone());
+    }
+
+    pub fn calculate_all_hashes(&mut self) {
+        let clean = clean_path_str(&self.apply_bin_path);
+        if clean.is_empty() {
+            return;
+        }
+        let path = PathBuf::from(&clean);
+        if !path.is_file() {
+            let err = "File does not exist or is not a regular file".to_string();
+            self.hash_crc32 = HashState::Error(err.clone());
+            self.hash_md5 = HashState::Error(err.clone());
+            self.hash_sha1 = HashState::Error(err);
+            return;
+        }
+
+        self.hash_source_path = clean;
+        self.hash_crc32 = HashState::Calculating;
+        self.hash_md5 = HashState::Calculating;
+        self.hash_sha1 = HashState::Calculating;
+
+        compute_all_hashes_async(path, self.tx_event.clone());
+    }
+
+    pub fn clear_hashes(&mut self) {
+        self.hash_crc32 = HashState::NotCalculated;
+        self.hash_md5 = HashState::NotCalculated;
+        self.hash_sha1 = HashState::NotCalculated;
+        self.hash_copied_feedback = None;
+    }
+
+    pub fn is_hashing(&self) -> bool {
+        self.hash_crc32 == HashState::Calculating
+            || self.hash_md5 == HashState::Calculating
+            || self.hash_sha1 == HashState::Calculating
+    }
 }
 
 impl eframe::App for PpfApp {
@@ -335,19 +468,22 @@ impl eframe::App for PpfApp {
         self.handle_worker_events();
         self.handle_drag_and_drop(ctx);
 
-        if self.is_busy {
+        if self.is_busy || self.is_hashing() {
             ctx.request_repaint_after(std::time::Duration::from_millis(33));
         }
 
         // Help dialog window
         if self.show_help {
-            views::help::show(&mut self.show_help, ctx);
+            views::help::show(&mut self.show_help, ctx, self.logo_texture.as_ref());
         }
 
         // Top Header and Tab Bar
         egui::TopBottomPanel::top("top_navigation_panel").show(ctx, |ui| {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
+                if let Some(texture) = &self.logo_texture {
+                    ui.image((texture.id(), egui::vec2(22.0, 22.0)));
+                }
                 ui.heading(
                     RichText::new("PPF Rust Patcher")
                         .strong()

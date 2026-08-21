@@ -1,8 +1,8 @@
-use crate::app::{PpfApp, clean_path_str};
+use crate::app::{HashState, PpfApp, clean_path_str};
 use crate::views::widgets;
 use crate::worker::{
-    FilePickTarget, InspectTargetTab, apply_patch_async, pick_file_async, save_file_async,
-    undo_patch_async,
+    FilePickTarget, HashAlgorithm, InspectTargetTab, apply_patch_async, pick_file_async,
+    save_file_async, undo_patch_async,
 };
 use egui::{Color32, RichText, Ui};
 use ppf_core::{ImageType, PpfVersion};
@@ -31,6 +31,7 @@ pub fn show(app: &mut PpfApp, ui: &mut Ui) {
             );
             if edit.changed() {
                 app.action_status = None;
+                app.reset_hashes_if_path_changed();
                 if app.apply_output_copy_path.is_empty() && !app.apply_bin_path.trim().is_empty() {
                     let clean = clean_path_str(&app.apply_bin_path);
                     app.apply_output_copy_path = crate::worker::generate_patched_path(
@@ -96,6 +97,10 @@ pub fn show(app: &mut PpfApp, ui: &mut Ui) {
                 });
             });
         }
+
+        // Checksums & Hashes Collapsible Section
+        ui.add_space(4.0);
+        render_hash_collapsible(app, ui);
 
         ui.add_space(8.0);
 
@@ -224,7 +229,8 @@ pub fn show(app: &mut PpfApp, ui: &mut Ui) {
     // Card 3: Action Buttons
     let has_bin = !app.apply_bin_path.trim().is_empty();
     let has_patch = !app.apply_patch_path.trim().is_empty() && app.apply_patch_info.is_some();
-    let can_apply = has_bin && has_patch && !app.is_busy;
+    let is_busy = app.is_busy || app.is_hashing();
+    let can_apply = has_bin && has_patch && !is_busy;
     let can_undo = can_apply
         && app
             .apply_patch_info
@@ -298,4 +304,206 @@ pub fn show(app: &mut PpfApp, ui: &mut Ui) {
 
     // Status / Result Banner
     widgets::render_status_banner(app.action_status.as_ref(), ui);
+}
+
+fn render_hash_collapsible(app: &mut PpfApp, ui: &mut Ui) {
+    egui::CollapsingHeader::new(
+        RichText::new("Image Checksums & Hashes (CRC32, MD5, SHA-1)")
+            .color(Color32::from_rgb(170, 200, 240))
+            .strong(),
+    )
+    .default_open(false)
+    .show(ui, |ui| {
+        ui.add_space(2.0);
+        let clean = clean_path_str(&app.apply_bin_path);
+        let file_path = std::path::Path::new(&clean);
+        let file_valid = !clean.is_empty() && file_path.is_file();
+
+        if !file_valid {
+            ui.label(
+                RichText::new(
+                    "Select a valid target binary image above to compute or verify checksums.",
+                )
+                .size(12.0)
+                .color(Color32::from_rgb(160, 160, 160))
+                .italics(),
+            );
+            return;
+        }
+
+        ui.label(
+            RichText::new(
+                "Generate integrity hashes of the target image (runs concurrently in background):",
+            )
+            .size(12.0)
+            .weak(),
+        );
+        ui.add_space(4.0);
+
+        let mut trigger_calc: Option<HashAlgorithm> = None;
+        let mut trigger_copy: Option<(HashAlgorithm, String)> = None;
+
+        egui::Grid::new("image_hashes_table")
+            .num_columns(3)
+            .spacing([14.0, 6.0])
+            .show(ui, |ui| {
+                for algo in [
+                    HashAlgorithm::Crc32,
+                    HashAlgorithm::Md5,
+                    HashAlgorithm::Sha1,
+                ] {
+                    render_hash_row(ui, app, algo, &mut trigger_calc, &mut trigger_copy);
+                    ui.end_row();
+                }
+            });
+
+        ui.add_space(6.0);
+
+        // Action Buttons Row
+        ui.horizontal(|ui| {
+            let is_busy = app.is_busy;
+            let is_hashing = app.is_hashing();
+
+            let calc_all_btn = ui.add_enabled(
+                !is_busy && !is_hashing,
+                egui::Button::new(RichText::new("Calculate All Hashes").strong()),
+            ).on_hover_text(
+                "Computes CRC32, MD5, and SHA-1 simultaneously using background worker threads.",
+            );
+            if calc_all_btn.clicked() {
+                app.calculate_all_hashes();
+            }
+
+            let has_any_result = app.hash_crc32 != HashState::NotCalculated
+                || app.hash_md5 != HashState::NotCalculated
+                || app.hash_sha1 != HashState::NotCalculated;
+
+            if has_any_result {
+                let clear_btn = ui
+                    .add_enabled(!is_hashing, egui::Button::new("Clear Hashes"))
+                    .on_hover_text("Clear all calculated hash values.");
+                if clear_btn.clicked() {
+                    app.clear_hashes();
+                }
+            }
+        });
+
+        if let Some((algo, text)) = trigger_copy {
+            ui.output_mut(|o| o.copied_text = text);
+            app.hash_copied_feedback = Some((algo, std::time::Instant::now()));
+        }
+
+        if let Some(algo) = trigger_calc {
+            app.calculate_hash(algo);
+        }
+    });
+}
+
+fn render_hash_row(
+    ui: &mut Ui,
+    app: &PpfApp,
+    algorithm: HashAlgorithm,
+    trigger_calc: &mut Option<HashAlgorithm>,
+    trigger_copy: &mut Option<(HashAlgorithm, String)>,
+) {
+    let label = algorithm.name();
+    let tooltip = algorithm.description();
+
+    // Column 1: Label
+    ui.label(RichText::new(format!("{}:", label)).strong())
+        .on_hover_text(tooltip);
+
+    // Column 2: Status / Hash Output
+    let state = match algorithm {
+        HashAlgorithm::Crc32 => &app.hash_crc32,
+        HashAlgorithm::Md5 => &app.hash_md5,
+        HashAlgorithm::Sha1 => &app.hash_sha1,
+    };
+
+    match state {
+        HashState::NotCalculated => {
+            ui.label(
+                RichText::new("Not calculated")
+                    .color(Color32::from_rgb(140, 140, 140))
+                    .italics(),
+            );
+        }
+        HashState::Calculating => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(
+                    RichText::new("Calculating...")
+                        .color(Color32::from_rgb(255, 200, 100))
+                        .italics(),
+                );
+            });
+        }
+        HashState::Calculated(hash) => {
+            let mut text = hash.clone();
+            let width = match algorithm {
+                HashAlgorithm::Crc32 => 90.0,
+                HashAlgorithm::Md5 => 230.0,
+                HashAlgorithm::Sha1 => 290.0,
+            };
+            ui.add(
+                egui::TextEdit::singleline(&mut text)
+                    .font(egui::TextStyle::Monospace)
+                    .min_size(egui::vec2(width, 20.0))
+                    .interactive(true),
+            );
+        }
+        HashState::Error(err) => {
+            ui.colored_label(Color32::from_rgb(255, 100, 100), format!("Error: {}", err));
+        }
+    }
+
+    // Column 3: Action Buttons
+    ui.horizontal(|ui| match state {
+        HashState::NotCalculated => {
+            let btn = ui
+                .add_enabled(
+                    !app.is_busy,
+                    egui::Button::new(format!("Generate {}", label)),
+                )
+                .on_hover_text(format!("Compute {} checksum in background thread.", label));
+            if btn.clicked() {
+                *trigger_calc = Some(algorithm);
+            }
+        }
+        HashState::Calculating => {
+            ui.add_enabled(false, egui::Button::new("Working..."));
+        }
+        HashState::Calculated(hash) => {
+            let is_copied = app
+                .hash_copied_feedback
+                .as_ref()
+                .is_some_and(|(algo, instant)| {
+                    *algo == algorithm && instant.elapsed().as_secs() < 2
+                });
+            let copy_label = if is_copied {
+                "✔ Copied!"
+            } else {
+                "📋 Copy"
+            };
+            let copy_btn = ui
+                .button(copy_label)
+                .on_hover_text("Copy hash to clipboard");
+            if copy_btn.clicked() {
+                *trigger_copy = Some((algorithm, hash.clone()));
+            }
+
+            let recalc_btn = ui
+                .add_enabled(!app.is_busy, egui::Button::new("🔄"))
+                .on_hover_text(format!("Recalculate {} checksum", label));
+            if recalc_btn.clicked() {
+                *trigger_calc = Some(algorithm);
+            }
+        }
+        HashState::Error(_) => {
+            let retry_btn = ui.add_enabled(!app.is_busy, egui::Button::new("Retry"));
+            if retry_btn.clicked() {
+                *trigger_calc = Some(algorithm);
+            }
+        }
+    });
 }

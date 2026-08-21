@@ -1,12 +1,21 @@
 use crate::core::{ImageType, PpfError};
+#[cfg(feature = "mmap")]
 use memmap2::Mmap;
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
+#[cfg(feature = "mmap")]
 use std::fs::File;
-use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
+#[cfg(feature = "mmap")]
+use std::io::BufWriter;
+use std::io::{Read, Seek, SeekFrom, Write};
+#[cfg(feature = "mmap")]
 use std::path::Path;
 
+#[cfg(feature = "mmap")]
 const WRITE_BUF: usize = 8 * 1024 * 1024;
 const CHUNK_SIZE: usize = 1024 * 1024;
+
+pub type CreatorProgressCallback<'a> = &'a (dyn Fn(usize) + Sync + Send);
 
 /// Default PPF3 patch description containing application name and compiled version.
 pub const DEFAULT_DESCRIPTION: &str =
@@ -14,6 +23,7 @@ pub const DEFAULT_DESCRIPTION: &str =
 
 /// Configuration options for creating a PPF3 patch.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PpfCreatorOptions {
     pub description: String,
     pub image_type: ImageType,
@@ -51,12 +61,13 @@ struct DiffRange {
 /// * `output_path` - Destination path for the resulting PPF3 patch file.
 /// * `options` - Configuration options for the PPF3 patch.
 /// * `progress_cb` - Optional thread-safe callback invoked with bytes processed in each chunk.
+#[cfg(feature = "mmap")]
 pub fn create_patch(
     original_path: impl AsRef<Path>,
     patched_path: impl AsRef<Path>,
     output_path: impl AsRef<Path>,
     options: &PpfCreatorOptions,
-    progress_cb: Option<&(dyn Fn(usize) + Sync + Send)>,
+    progress_cb: Option<CreatorProgressCallback<'_>>,
 ) -> Result<usize, PpfError> {
     let orig_file = File::open(original_path)?;
     let mod_file = File::open(patched_path)?;
@@ -80,16 +91,26 @@ pub fn create_patch(
     }
 
     let output = BufWriter::with_capacity(WRITE_BUF, File::create(output_path)?);
-    create_patch_mmap(&orig_mmap, &mod_mmap, output, options, progress_cb)
+    create_patch_slice(&orig_mmap, &mod_mmap, output, options, progress_cb)
 }
 
-fn create_patch_mmap<W: Write>(
+/// Creates a PPF3 patch from in-memory slices and writes to a `Write` stream.
+///
+/// Returns the number of diff record entries written to the patch stream.
+pub fn create_patch_slice<W: Write>(
     orig_data: &[u8],
     mod_data: &[u8],
     mut output: W,
     options: &PpfCreatorOptions,
-    progress_cb: Option<&(dyn Fn(usize) + Sync + Send)>,
+    progress_cb: Option<CreatorProgressCallback<'_>>,
 ) -> Result<usize, PpfError> {
+    if orig_data.len() != mod_data.len() {
+        return Err(PpfError::BinSizeMismatch {
+            expected: orig_data.len() as u64,
+            actual: mod_data.len() as u64,
+        });
+    }
+
     output.write_all(b"PPF30")?;
     output.write_all(&[0x02u8])?;
 
@@ -122,18 +143,29 @@ fn create_patch_mmap<W: Write>(
         output.write_all(&block)?;
     }
 
+    let process_chunk = |(chunk_idx, (orig_chunk, mod_chunk)): (usize, (&[u8], &[u8]))| {
+        let base_offset = chunk_idx as u64 * CHUNK_SIZE as u64;
+        let diffs = scan_chunk(orig_chunk, mod_chunk, base_offset);
+        if let Some(cb) = progress_cb {
+            cb(orig_chunk.len());
+        }
+        diffs
+    };
+
+    #[cfg(feature = "parallel")]
     let all_diffs: Vec<Vec<DiffRange>> = orig_data
         .par_chunks(CHUNK_SIZE)
         .zip(mod_data.par_chunks(CHUNK_SIZE))
         .enumerate()
-        .map(|(chunk_idx, (orig_chunk, mod_chunk))| {
-            let base_offset = chunk_idx as u64 * CHUNK_SIZE as u64;
-            let diffs = scan_chunk(orig_chunk, mod_chunk, base_offset);
-            if let Some(cb) = progress_cb {
-                cb(orig_chunk.len());
-            }
-            diffs
-        })
+        .map(process_chunk)
+        .collect();
+
+    #[cfg(not(feature = "parallel"))]
+    let all_diffs: Vec<Vec<DiffRange>> = orig_data
+        .chunks(CHUNK_SIZE)
+        .zip(mod_data.chunks(CHUNK_SIZE))
+        .enumerate()
+        .map(process_chunk)
         .collect();
 
     let mut entries_found = 0;
@@ -220,7 +252,7 @@ pub fn create_patch_stream<R1, R2, W>(
     mut modified: R2,
     output: W,
     options: &PpfCreatorOptions,
-    progress_cb: Option<&(dyn Fn(usize) + Sync + Send)>,
+    progress_cb: Option<CreatorProgressCallback<'_>>,
 ) -> Result<usize, PpfError>
 where
     R1: Read + Seek,
@@ -245,7 +277,7 @@ where
     original.read_exact(orig_buf.as_mut_slice())?;
     modified.read_exact(mod_buf.as_mut_slice())?;
 
-    create_patch_mmap(
+    create_patch_slice(
         orig_buf.as_slice(),
         mod_buf.as_slice(),
         output,
